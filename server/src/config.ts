@@ -46,6 +46,8 @@ export const config = {
   port: Number(env('PORT', '3000')),
   host: env('HOST', '0.0.0.0'),
   databaseUrl: env('DATABASE_URL', isTest ? 'postgres://jadip:jadip@localhost:5432/jadip_flow_test' : undefined),
+  // rôle propriétaire du schéma, utilisé seulement pour les migrations (l'application tourne avec un rôle restreint)
+  migrationDatabaseUrl: process.env.MIGRATION_DATABASE_URL || '',
   // clé maîtresse AES-256 (32 octets en base64) pour chiffrer les secrets au repos
   encryptionKey: env('APP_ENCRYPTION_KEY', isTest ? Buffer.alloc(32, 7).toString('base64') : undefined),
   publicUrl: env('PUBLIC_URL', 'http://localhost:3000').replace(/\/$/, ''),

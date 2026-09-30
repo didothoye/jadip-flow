@@ -1,0 +1,16 @@
+# Instance n8n de test pour le jeu de démonstration (réseau interne uniquement, aucun port publié).
+# docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+services:
+  jadip-flow-demo-n8n:
+    image: node:22-bookworm-slim
+    container_name: jadip-flow-demo-n8n
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "fake-n8n.mjs"]
+    environment:
+      PORT: "5678"
+      API_KEY: ${DEMO_N8N_KEY:-demo-key-change-me}
+    volumes:
+      - ../tools/fake-n8n:/app:ro
+    networks:
+      - jadip-flow-internal

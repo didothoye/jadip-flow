@@ -1,0 +1,64 @@
+# Jadip Flow — production (conventions du VPS : réseau proxy-net, aucun port publié, Nginx Proxy Manager devant)
+name: jadip-flow
+
+services:
+  jadip-flow:
+    image: jadip-flow:${JADIP_FLOW_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: jadip-flow
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # l'application tourne avec un rôle restreint ; le rôle propriétaire ne sert qu'aux migrations
+      DATABASE_URL: postgres://jadip_flow_app:${APP_DB_PASSWORD}@jadip-flow-db:5432/jadip_flow
+      MIGRATION_DATABASE_URL: postgres://jadip_flow:${POSTGRES_PASSWORD}@jadip-flow-db:5432/jadip_flow
+    volumes:
+      - jadip-flow-data:/data
+    depends_on:
+      jadip-flow-db:
+        condition: service_healthy
+    networks:
+      - proxy-net
+      - jadip-flow-internal
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  jadip-flow-db:
+    image: postgres:16-alpine
+    container_name: jadip-flow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jadip_flow
+      POSTGRES_USER: jadip_flow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - jadip-flow-db:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jadip_flow -d jadip_flow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - jadip-flow-internal
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  jadip-flow-data:
+  jadip-flow-db:
+
+networks:
+  proxy-net:
+    external: true
+  jadip-flow-internal:
+    internal: true
