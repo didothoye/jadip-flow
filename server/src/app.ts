@@ -22,6 +22,9 @@ const extraRoutes: RouteModule[] = [];
 /** Permet aux modules des phases suivantes de s'enregistrer. */
 export const registerRoutes = (...m: RouteModule[]) => extraRoutes.push(...m);
 
+/** Table des routes enregistrées (utilisée par les tests de cloisonnement). */
+export const routeTable: { method: string; url: string }[] = [];
+
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
     logger: opts.logger ?? !config.isTest ? { level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-n8n-api-key"]'] } : false,
@@ -57,6 +60,9 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
     return reply.code(500).send({ error: 'Erreur interne. L’incident a été journalisé.', code: 'internal' });
   });
 
+  app.addHook('onRoute', (r) => {
+    for (const m of [r.method].flat()) if (m !== 'HEAD' && m !== 'OPTIONS') routeTable.push({ method: m, url: r.url });
+  });
   registerAuth(app);
 
   app.get('/healthz', async () => {
