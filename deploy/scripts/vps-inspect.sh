@@ -15,5 +15,5 @@ h "Projets docker compose"; docker compose ls 2>&1
 h "Outils de sauvegarde"; for t in git age gpg rclone pg_dump curl openssl; do printf '%-9s %s\n' "$t" "$(command -v $t || echo absent)"; done
 rclone listremotes 2>/dev/null | sed 's/^/remote rclone : /'
 h "Tâches cron (noms de fichiers seulement)"; ls -1 /etc/cron.d 2>/dev/null; crontab -l 2>/dev/null | grep -v '^#' | awk '{print "crontab : " $0}' | sed -E 's/(TOKEN|KEY|PASS|SECRET)[^ ]*/\1=***/g' | head -20
-h "Accès GitHub depuis le VPS"; timeout 10 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | head -1
+h "Accès GitHub depuis le VPS"; for h in github.com github-jadip-flow; do printf '%s : ' "$h"; timeout 10 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T "git@$h" 2>&1 | head -1; done
 h "Fin"; echo "Copiez tout ce texte dans la conversation."

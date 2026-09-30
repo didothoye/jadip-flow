@@ -3,12 +3,12 @@
 # Usage (depuis votre ordinateur) :
 #   ssh jadip 'bash -s' < deploy/scripts/vps-install.sh                       # installe ou met à jour
 #   ssh jadip 'ADMIN_EMAIL=vous@jadipservices.com bash -s' < deploy/scripts/vps-install.sh   # + crée votre compte administrateur
-# Variables : APP_DIR (défaut /opt/apps/jadip-flow), GIT_REF (branche), PUBLIC_URL, ADMIN_EMAIL, ADMIN_NAME, DEMO=1 (charger la démo)
+# Variables : APP_DIR (défaut /srv/apps/jadip-flow), GIT_REF (branche), PUBLIC_URL, ADMIN_EMAIL, ADMIN_NAME, DEMO=1 (charger la démo)
 # Les secrets sont générés SUR le VPS, dans deploy/.env (chmod 600), et ne sont jamais affichés.
 set -euo pipefail
-APP_DIR="${APP_DIR:-/opt/apps/jadip-flow}"
+APP_DIR="${APP_DIR:-/srv/apps/jadip-flow}"
 GIT_REF="${GIT_REF:-claude/relaxed-newton-temyiq}"
-REPO="${REPO:-git@github.com:didothoye/jadip-flow.git}"
+REPO="${REPO:-git@github-jadip-flow:didothoye/jadip-flow.git}"
 PUBLIC_URL="${PUBLIC_URL:-https://flow.jadipservices.com}"
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 

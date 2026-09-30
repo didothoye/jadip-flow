@@ -2,12 +2,12 @@
 
 Conventions appliquées : conteneurs Docker, réseau externe `proxy-net`, **aucun port publié**, Nginx Proxy Manager (NPM) en frontal, DNS Cloudflare par l’API, sonde uptime-kuma, sauvegardes chiffrées hors serveur. Domaine : **flow.jadipservices.com** (.com uniquement — le script DNS refuse tout autre suffixe).
 
-> Les chemins ci-dessous (`/opt/apps/jadip-flow`) sont indicatifs : adaptez-les à l’emplacement habituel de vos applications sur le VPS.
+> Les chemins ci-dessous (`/srv/apps/jadip-flow`) sont indicatifs : adaptez-les à l’emplacement habituel de vos applications sur le VPS.
 
 ## 1. Récupérer le code
 
 ```bash
-sudo mkdir -p /opt/apps && cd /opt/apps
+sudo mkdir -p /srv/apps && cd /srv/apps
 git clone git@github.com:didothoye/jadip-flow.git
 cd jadip-flow
 ```
@@ -79,7 +79,7 @@ BACKUP_PUSH_URL=https://<uptime-kuma>/api/push/<jeton>
 CONF
 sudo chmod 600 /etc/jadip-flow-backup.env
 # cron quotidien à 2 h 30
-echo '30 2 * * * root set -a; . /etc/jadip-flow-backup.env; /opt/apps/jadip-flow/deploy/scripts/backup.sh >> /var/log/jadip-flow-backup.log 2>&1' | sudo tee /etc/cron.d/jadip-flow-backup
+echo '30 2 * * * root set -a; . /etc/jadip-flow-backup.env; /srv/apps/jadip-flow/deploy/scripts/backup.sh >> /var/log/jadip-flow-backup.log 2>&1' | sudo tee /etc/cron.d/jadip-flow-backup
 ```
 
 Contenu d’une sauvegarde : export PostgreSQL complet (`pg_dump -Fc`) + dossier `/data` (rapports, pièces jointes, logos) + manifeste, compressés puis chiffrés, avec somme SHA-256. Copie hors serveur par `rclone` (Backblaze B2, Google Drive, S3… selon votre configuration rclone existante). Le script refuse de produire une sauvegarde non chiffrée.
@@ -107,7 +107,7 @@ Cette procédure a été exécutée avec succès pendant le développement (age 
 ## 9. Mise à jour
 
 ```bash
-cd /opt/apps/jadip-flow && git pull
+cd /srv/apps/jadip-flow && git pull
 cd deploy && docker compose build && docker compose up -d   # les migrations s’appliquent au démarrage
 ```
 

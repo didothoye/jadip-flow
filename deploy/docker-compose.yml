@@ -23,6 +23,7 @@ services:
     networks:
       - proxy-net
       - jadip-flow-internal
+    mem_limit: 512m
     security_opt:
       - no-new-privileges:true
     logging:
@@ -48,6 +49,7 @@ services:
       retries: 10
     networks:
       - jadip-flow-internal
+    mem_limit: 384m
     security_opt:
       - no-new-privileges:true
     logging:
