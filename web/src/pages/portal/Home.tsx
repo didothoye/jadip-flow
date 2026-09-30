@@ -30,7 +30,7 @@ export default function Home() {
                   hint={d.summary.active === d.summary.total ? 'Toutes sont en marche' : `${d.summary.total - d.summary.active} à l’arrêt`} />
                 <Stat label="Temps gagné ce mois" value={fmtDuration(d.summary.minutes_saved_month)}
                   hint={d.summary.minutes_saved_month >= 480 ? `Soit environ ${fmtNum(Math.round(d.summary.minutes_saved_month / 480))} journées de travail` : 'Temps que vous n’avez pas passé à le faire à la main'} />
-                <Stat label="Taux de réussite (30 jours)" value={fmtPct(d.summary.success_rate_30d)} tone={rateTone(d.summary.success_rate_30d)}
+                <Stat label="Réussite sur 30 jours" value={fmtPct(d.summary.success_rate_30d)} tone={rateTone(d.summary.success_rate_30d)}
                   hint={d.summary.executions_30d ? `Sur ${fmtNum(d.summary.executions_30d)} passages` : 'Aucun passage sur la période'} />
               </div>
             )}

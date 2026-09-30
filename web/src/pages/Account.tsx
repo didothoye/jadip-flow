@@ -7,14 +7,14 @@ import { Card, Modal, PageHead, useAction, useUi } from '../components/ui';
 
 export default function Account() {
   useTitle('Mon compte');
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
   const { run, busy } = useAction();
   if (!user) return null;
   const isAdmin = user.role === 'admin';
   const save = (patch: Record<string, unknown>) => run(async () => setUser((await api.patch('/api/me', patch)).user), 'Préférences enregistrées.');
   return (
     <div className="stack">
-      <PageHead title="Mon compte" sub={user.email} />
+      <PageHead title="Mon compte" sub={user.email} actions={<button className="btn" onClick={logout}>Se déconnecter</button>} />
       <div className="grid cols-2">
         <Card title="Notifications">
           <div className="form">

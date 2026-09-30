@@ -40,7 +40,11 @@ export async function setWorkflowActive(actor: Actor, workflowId: string, active
     await logAction(actor, { clientId: wf.client_id, workflowId, action, result: 'refused', message: msg });
     throw forbidden(msg);
   };
-  if (!active && wf.is_locked) await refuse('Ce workflow est marqué critique : il ne peut pas être désactivé depuis le portail.');
+  if (!active && wf.is_locked) {
+    await refuse(actor.role === 'client'
+      ? 'Cette automatisation est gérée par Jadip Services et ne peut pas être désactivée depuis votre espace. Faites-nous une demande si besoin.'
+      : 'Ce workflow est marqué critique : il ne peut pas être désactivé depuis le portail.');
+  }
   if (actor.role === 'client') {
     if (!wf.can_toggle || !wf.client_can_toggle) await refuse('Vous n’êtes pas autorisé à modifier l’état de cette automatisation.');
   }
@@ -52,7 +56,7 @@ export async function setWorkflowActive(actor: Actor, workflowId: string, active
     else await n8n.deactivate(wf.n8n_id);
   } catch (e: any) {
     await logAction(actor, { clientId: wf.client_id, workflowId, action, result: 'error', message: e.message });
-    throw new HttpError(502, `n8n a refusé l’opération : ${e.message}`, 'n8n_error');
+    throw new HttpError(502, actor.role === 'client' ? 'L’opération n’a pas pu aboutir pour le moment. Réessayez dans quelques minutes ; notre équipe est prévenue en cas de problème persistant.' : `n8n a refusé l’opération : ${e.message}`, 'n8n_error');
   }
   await q(`UPDATE workflows SET active=$2, paused_until=$3, updated_at=now() WHERE id=$1`, [workflowId, active, active ? null : opts.pauseUntil ?? null]);
   await q(`INSERT INTO workflow_events(workflow_id, kind, detail) VALUES ($1,$2,$3)`,
@@ -83,11 +87,11 @@ export async function retryExecution(actor: Actor, executionId: number) {
     r = await clientFor(wf).retry(ex.n8n_execution_id);
   } catch (e: any) {
     await logAction(actor, { clientId: wf.client_id, workflowId: wf.id, action: 'retry', result: 'error', message: e.message });
-    throw new HttpError(502, `n8n a refusé la relance : ${e.message}`, 'n8n_error');
+    throw new HttpError(502, actor.role === 'client' ? 'La relance n’a pas pu aboutir pour le moment. Réessayez plus tard ou faites-nous une demande.' : `n8n a refusé la relance : ${e.message}`, 'n8n_error');
   }
   if (!r.supported) {
     await logAction(actor, { clientId: wf.client_id, workflowId: wf.id, action: 'retry', result: 'error', message: 'Relance non prise en charge par cette version de n8n' });
-    throw new HttpError(501, 'Cette version de n8n ne permet pas la relance via l’API. Relancez depuis n8n.', 'retry_unsupported');
+    throw new HttpError(501, actor.role === 'client' ? 'La relance automatique n’est pas disponible pour cette automatisation. Faites-nous une demande : nous la relancerons pour vous.' : 'Cette version de n8n ne permet pas la relance via l’API. Relancez depuis n8n.', 'retry_unsupported');
   }
   await logAction(actor, { clientId: wf.client_id, workflowId: wf.id, action: 'retry', result: 'ok', message: `Exécution ${ex.n8n_execution_id} relancée`, detail: { newExecutionId: r.newExecutionId } });
   await notifyClientAction(actor, wf, 'a relancé une exécution de');

@@ -66,7 +66,7 @@ export default function NewTicketPage() {
           <div className="p-kinds" role="radiogroup">
             {KINDS.map((x) => (
               <label key={x.key} className={`p-choice ${kind === x.key ? 'sel' : ''}`}>
-                <input type="radio" name="kind" value={x.key} checked={kind === x.key} onChange={() => setKind(x.key)} />
+                <input type="radio" name="kind" value={x.key} checked={kind === x.key} onChange={() => { setKind(x.key); setError(null); }} />
                 <span className="emo" aria-hidden="true">{x.icon}</span>
                 <span><span className="ct">{x.title}</span><br /><span className="cd">{x.desc}</span></span>
               </label>

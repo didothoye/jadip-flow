@@ -76,7 +76,8 @@ async function main() {
     const t = await one<any>(`INSERT INTO tickets(client_id, workflow_id, created_by, kind, subject, status) VALUES ($1,$2,$3,'change','Ajouter la quantité commandée dans le tableau','in_progress') RETURNING id`, [kivu.id, wf.id, aline.id]);
     await q(`INSERT INTO ticket_messages(ticket_id, author_id, author_role, body) VALUES ($1,$2,'client','Bonjour, pourriez-vous ajouter une colonne « quantité » dans le tableau des commandes ? Merci !')`, [t.id, aline.id]);
     await q(`INSERT INTO ticket_messages(ticket_id, author_role, body) VALUES ($1,'admin','Bien reçu, c’est prévu pour jeudi. Nous vous prévenons dès que c’est en place.')`, [t.id]);
-    await q(`INSERT INTO tickets(client_id, created_by, kind, subject) VALUES ($1,$2,'question','Peut-on recevoir les commandes aussi par SMS ?')`, [kivu.id, aline.id]);
+    const t2 = await one<any>(`INSERT INTO tickets(client_id, created_by, kind, subject) VALUES ($1,$2,'question','Peut-on recevoir les commandes aussi par SMS ?') RETURNING id`, [kivu.id, aline.id]);
+    await q(`INSERT INTO ticket_messages(ticket_id, author_id, author_role, body) VALUES ($1,$2,'client','Certains clients n’ont pas WhatsApp. Est-il possible de prendre leurs commandes par SMS ?')`, [t2.id, aline.id]);
   }
   await evaluatePeriodic();
   for (const c of [kivu, lum]) {

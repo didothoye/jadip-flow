@@ -52,7 +52,7 @@ export const STATUS_LABELS: Record<string, string> = {
 };
 
 export const TICKET_KIND: Record<string, string> = { change: 'Demande de modification', problem: 'Signalement de problème', question: 'Question' };
-export const TICKET_STATUS: Record<string, string> = { new: 'Nouveau', in_progress: 'En cours', waiting_client: 'En attente de réponse', done: 'Terminé', closed: 'Fermé' };
+export const TICKET_STATUS: Record<string, string> = { new: 'Nouveau', in_progress: 'En cours', waiting_client: 'En attente de réponse du client', done: 'Terminé', closed: 'Fermé' };
 
 export function currentPeriod() {
   const d = new Date();

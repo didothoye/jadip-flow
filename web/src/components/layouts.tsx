@@ -115,12 +115,12 @@ export function PortalLayout() {
         <div className="inner">
           <div className="brandmark">
             {user?.client_logo ? <img src={`/api/clients/${user.client_id}/logo`} alt={user.client_name ?? ''} /> : <img src="/brand/icon.svg" alt="" />}
-            <span>{user?.client_name ?? brand?.productName}</span>
+            <span className="brandname">{user?.client_name ?? brand?.productName}</span>
           </div>
           <nav className="portal-nav">{nav(false)}</nav>
           <span className="grow" style={{ flex: 1 }} />
           <Notifications />
-          <button className="btn ghost small" onClick={logout}>Déconnexion</button>
+          <button className="btn ghost small hide-mobile" onClick={logout}>Déconnexion</button>
         </div>
       </header>
       <main className="portal-main"><Outlet /></main>

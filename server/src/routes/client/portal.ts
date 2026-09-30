@@ -23,7 +23,7 @@ const STATUS_LABEL: Record<string, string> = { success: 'Réussie', error: 'Inci
 function cardOf(w: any, perms: { can_toggle: boolean; can_retry: boolean }) {
   return {
     id: w.id, name: w.display_name || w.name, description: w.description, active: w.active, paused_until: w.paused_until,
-    last_execution_at: w.last_execution_at, last_status: w.last_status ? STATUS_LABEL[w.last_status] ?? w.last_status : null,
+    last_execution_at: w.last_execution_at, last_status: w.last_status ? STATUS_LABEL[w.last_status] ?? w.last_status : null, last_status_code: w.last_status ?? null,
     success_rate_30d: w.success_rate_30d, executions_30d: w.exec_30d, failures_30d: w.fail_30d,
     minutes_saved_month: w.minutes_saved_month, locked: w.is_locked,
     can_toggle: perms.can_toggle && w.client_can_toggle && !(w.is_locked && w.active),

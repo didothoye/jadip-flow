@@ -22,6 +22,16 @@ export function fmtUntil(d: string) {
   return `${day} à ${time}`;
 }
 
+/** « jusqu’à 21:34 », « jusqu’à demain 21:34 », « jusqu’au mercredi 7 octobre à 21:34 ». */
+export function untilPhrase(d: string) {
+  const day = (x: Date) => new Intl.DateTimeFormat('fr-CA', { timeZone: TZ }).format(x);
+  const date = new Date(d);
+  const time = new Intl.DateTimeFormat('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(date);
+  if (day(date) === day(new Date())) return `jusqu’à ${time}`;
+  if (day(date) === day(new Date(Date.now() + 86400000))) return `jusqu’à demain ${time}`;
+  return `jusqu’au ${fmtUntil(d)}`;
+}
+
 export const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 export const rateTone = (r: number | null | undefined): 'good' | 'warn' | 'bad' | undefined =>
@@ -47,7 +57,7 @@ export function fmtSize(bytes: number) {
 /** Libellé de la phrase d'état (active, en pause jusqu'au…, désactivée). */
 export function stateOf(w: Pick<WfCard, 'active' | 'paused_until'>): { cls: 'on' | 'paused' | 'off'; label: string } {
   if (w.active) return { cls: 'on', label: 'Active' };
-  if (w.paused_until && new Date(w.paused_until).getTime() > Date.now()) return { cls: 'paused', label: `En pause jusqu’au ${fmtUntil(w.paused_until)}` };
+  if (w.paused_until && new Date(w.paused_until).getTime() > Date.now()) return { cls: 'paused', label: `En pause ${untilPhrase(w.paused_until)}` };
   return { cls: 'off', label: 'Désactivée' };
 }
 
