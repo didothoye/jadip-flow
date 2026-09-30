@@ -14,7 +14,7 @@ if [ -z "${TEST_PSQL:-}" ]; then
   for _ in $(seq 1 30); do docker exec "$cid" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
   sleep 2
   TEST_PSQL="docker exec -i $cid psql -U postgres -d restore_test -tA"
-  export PG_RESTORE="docker exec -i $cid pg_restore -U postgres -d restore_test --no-owner"
+  export PG_RESTORE="docker exec -i $cid pg_restore -U postgres -d restore_test --no-owner --no-acl"
 fi
 tmpdata=$(mktemp -d)
 "$here/restore.sh" "$latest" --data-dir "$tmpdata"

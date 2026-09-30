@@ -15,8 +15,7 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/data WEB_DIR=/app/web
-RUN apt-get update && apt-get install -y --no-install-recommends tini curl && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /data && chown node:node /data
+RUN mkdir -p /data && chown node:node /data
 WORKDIR /app/server
 COPY --from=server --chown=node:node /build/server/node_modules ./node_modules
 COPY --from=server --chown=node:node /build/server/dist ./dist
@@ -27,6 +26,7 @@ COPY --chown=node:node tools/fake-n8n /app/tools/fake-n8n
 USER node
 VOLUME ["/data"]
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1
-ENTRYPOINT ["/usr/bin/tini", "--"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# processus init : fourni par Docker (« init: true » dans docker-compose.yml)
 CMD ["node", "dist/index.js"]

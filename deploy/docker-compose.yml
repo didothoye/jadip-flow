@@ -9,6 +9,7 @@ services:
       dockerfile: Dockerfile
     container_name: jadip-flow
     restart: unless-stopped
+    init: true
     env_file: .env
     environment:
       # l'application tourne avec un rôle restreint ; le rôle propriétaire ne sert qu'aux migrations
