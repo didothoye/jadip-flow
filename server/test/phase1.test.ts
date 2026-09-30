@@ -184,6 +184,23 @@ describe('Phase 1 — tableau de bord et actions', () => {
     await admin.json('POST', `/api/admin/instances/${instanceId}/sync`);
     const after = await one<any>('SELECT client_id FROM workflows WHERE id=$1', [wf.id]);
     expect(after.client_id).toBe(other.id); // le rattachement manuel prime sur l'étiquette
+    const back = await admin.json('PATCH', `/api/admin/workflows/${wf.id}`, { assignment: 'tag' });
+    expect(back.client_assignment).toBe('tag');
+    expect(back.client_name).toBe('Cabinet Lumière (démo)'); // réappliqué immédiatement
+  });
+
+  it('paramètres : un booléen enregistré peut être désactivé', async () => {
+    await admin.json('PATCH', '/api/admin/settings', { notifyAdminOnClientAction: false });
+    expect((await admin.json('GET', '/api/admin/settings')).notifyAdminOnClientAction).toBe(false);
+    await admin.json('PATCH', '/api/admin/settings', { notifyAdminOnClientAction: true });
+  });
+
+  it('pagination des erreurs sans chevauchement', async () => {
+    const p1 = await admin.json('GET', '/api/admin/errors?limit=5');
+    const p2 = await admin.json('GET', `/api/admin/errors?limit=5&before=${p1.items[4].id}`);
+    const ids1 = new Set(p1.items.map((e: any) => e.id));
+    expect(p2.items.some((e: any) => ids1.has(e.id))).toBe(false);
+    expect(new Date(p2.items[0].started_at) <= new Date(p1.items[4].started_at)).toBe(true);
   });
 
   it('évalue les alertes périodiques (inactivité, taux d’échec)', async () => {

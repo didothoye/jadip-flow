@@ -39,7 +39,11 @@ export async function recentErrors(opts: { clientId?: string | null; workflowId?
   if (opts.category) { params.push(opts.category); where.push(`e.error_category = $${params.length}`); }
   if (opts.unhandledOnly) where.push('e.handled_at IS NULL');
   if (opts.visibleOnly) where.push('w.client_visible');
-  if (opts.before) { params.push(opts.before); where.push(`e.id < $${params.length}`); }
+  if (opts.before) {
+    // pagination stable (started_at, id) à partir de la dernière erreur affichée
+    params.push(opts.before);
+    where.push(`(e.started_at, e.id) < (SELECT b.started_at, b.id FROM executions b WHERE b.id = $${params.length})`);
+  }
   params.push(Math.min(opts.limit ?? 50, 500));
   return q<any>(`
     SELECT e.id, e.n8n_execution_id, e.status, e.started_at, e.stopped_at, e.duration_ms, e.error_node, e.error_message, e.error_category,
@@ -162,8 +166,9 @@ export async function listExecutions(f: ExecFilter) {
   params.push(limit + 1);
   const rows = await q<any>(`
     SELECT e.id, e.n8n_execution_id, e.status, e.mode, e.started_at, e.stopped_at, e.duration_ms, e.error_node, e.error_message, e.error_category,
-           e.retry_of, e.handled_at, e.workflow_id, COALESCE(w.display_name, w.name) workflow_display_name, w.name workflow_name, e.client_id
-    FROM executions e JOIN workflows w ON w.id = e.workflow_id
+           e.retry_of, e.handled_at, e.workflow_id, COALESCE(w.display_name, w.name) workflow_display_name, w.name workflow_name, e.client_id,
+           c.name client_name, e.instance_id, i.name instance_name
+    FROM executions e JOIN workflows w ON w.id = e.workflow_id LEFT JOIN clients c ON c.id = e.client_id JOIN instances i ON i.id = e.instance_id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY e.started_at DESC, e.id DESC LIMIT $${params.length}`, params);
   const hasMore = rows.length > limit;

@@ -58,7 +58,7 @@ export async function syncInstance(instanceId: string, trigger: 'schedule' | 'ma
     if (inst.last_sync_at && (s.created || s.deleted || s.renamed)) {
       // changements détectés après la première synchronisation : prévenir l'agence (dans l'application)
       const parts = [s.created && `${s.created} nouveau(x)`, s.renamed && `${s.renamed} renommé(s)`, s.deleted && `${s.deleted} supprimé(s)`].filter(Boolean);
-      await notifyInApp({ title: `Workflows modifiés sur ${inst.name}`, body: `${parts.join(', ')}. Pensez à rattacher les nouveaux workflows à un client.`, link: '/agence/workflows?unassigned=1' });
+      await notifyInApp({ title: `Workflows modifiés sur ${inst.name}`, body: `${parts.join(', ')}. Pensez à rattacher les nouveaux workflows à un client.`, link: '/agence/workflows?non_rattaches=1' });
     }
     if (failed.length) await onExecutionsFailed(failed);
     await onSyncResult(instanceId, true);

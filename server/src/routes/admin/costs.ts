@@ -124,7 +124,7 @@ export default async function costRoutes(app: FastifyInstance) {
 
   app.delete('/api/admin/llm/manual/:id', async (req) => {
     const a = requireAdmin(req);
-    const id = Number((req.params as any).id);
+    const { id } = parse(z.object({ id: z.coerce.number().int().positive() }), req.params);
     const r = await one<any>(`DELETE FROM llm_usage WHERE id=$1 AND source='manual' RETURNING client_id`, [id]);
     if (!r) throw notFound('Saisie');
     await audit({ actorUserId: a.userId, actorLabel: a.label, source: a.source, action: 'llm_usage.manual_deleted', targetType: 'llm_usage', targetId: id, clientId: r.client_id, ip: req.ip });

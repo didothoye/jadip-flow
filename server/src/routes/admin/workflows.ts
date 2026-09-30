@@ -71,9 +71,16 @@ export default async function workflowRoutes(app: FastifyInstance) {
       vals.push(b.client_id);
       sets.push(`client_id=$${vals.length}`, `client_assignment='manual'`);
     }
-    if (b.assignment === 'tag' && b.client_id === undefined) sets.push(`client_assignment='none'`);
+    if (b.assignment === 'tag' && b.client_id === undefined) {
+      // retour au rattachement automatique : on applique tout de suite l'étiquette « client:<code> »
+      sets.push(`client_id = (SELECT c.id FROM clients c, unnest(tags) t WHERE c.archived_at IS NULL AND lower(regexp_replace(t, '\\s', '', 'g')) = 'client:' || c.code LIMIT 1)`);
+      sets.push(`client_assignment = CASE WHEN EXISTS (SELECT 1 FROM clients c, unnest(tags) t WHERE c.archived_at IS NULL AND lower(regexp_replace(t, '\\s', '', 'g')) = 'client:' || c.code) THEN 'tag' ELSE 'none' END`);
+    }
     if (!sets.length) throw badRequest('Aucune modification');
     await q(`UPDATE workflows SET ${sets.join(', ')}, updated_at=now() WHERE id=$1`, vals);
+    if (b.assignment === 'tag' && b.client_id === undefined) {
+      await q('UPDATE executions e SET client_id=w.client_id FROM workflows w WHERE w.id=e.workflow_id AND w.id=$1', [id]);
+    }
     if (b.client_id !== undefined) {
       await q('UPDATE executions SET client_id=$2 WHERE workflow_id=$1', [id, b.client_id]);
       await q(`INSERT INTO workflow_events(workflow_id, kind, detail) VALUES ($1,'assigned',$2)`, [id, { clientId: b.client_id, via: 'manual', by: a.label }]);

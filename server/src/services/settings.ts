@@ -19,7 +19,10 @@ export const defaultSettings: AppSettings = {
 export async function getSettings(): Promise<AppSettings> {
   const rows = await q<{ key: string; value: any }>('SELECT key, value FROM settings');
   const s: any = structuredClone(defaultSettings);
-  for (const r of rows) if (r.key in s) s[r.key] = { ...s[r.key], ...r.value };
+  for (const r of rows) {
+    if (!(r.key in s)) continue;
+    s[r.key] = typeof s[r.key] === 'object' && s[r.key] !== null ? { ...s[r.key], ...r.value } : r.value;
+  }
   return s;
 }
 
