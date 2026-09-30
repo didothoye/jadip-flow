@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
-import { CATEGORY_LABELS, fmtDateTime, fmtMs, fmtPct, fromNow, TICKET_STATUS } from '../../lib/format';
+import { CATEGORY_LABELS, fmtDateTime, fmtMs, fmtNum, fmtPct, fromNow, TICKET_STATUS } from '../../lib/format';
 import { Badge, Empty, ErrorBox, Loading, StatusBadge, Switch, useAction, useUi } from '../../components/ui';
 import './agency.css';
 
@@ -209,8 +209,8 @@ export function ErrorTable({ rows, onChanged, showWorkflow = true, showClient = 
             {selectable && <th style={{ width: 32 }}><input type="checkbox" aria-label="Tout sélectionner" checked={!!allSel}
               onChange={(e) => setSelected?.(e.target.checked ? new Set(unhandled.map((r) => r.id)) : new Set())} /></th>}
             <th>Date</th>
-            {showWorkflow && <th>Workflow</th>}
-            {showClient && <th>Client</th>}
+            {showWorkflow && <th>{showClient ? 'Workflow / client' : 'Workflow'}</th>}
+            {showClient && !showWorkflow && <th>Client</th>}
             <th>Nœud</th><th>Catégorie</th><th>Message</th><th className="right">Actions</th>
           </tr>
         </thead>
@@ -219,11 +219,12 @@ export function ErrorTable({ rows, onChanged, showWorkflow = true, showClient = 
             <tr key={e.id} className={e.handled_at ? 'muted-row' : ''}>
               {selectable && <td>{!e.handled_at && <input type="checkbox" aria-label={`Sélectionner l’erreur ${e.n8n_execution_id}`} checked={!!selected?.has(e.id)} onChange={() => toggle(e.id)} />}</td>}
               <td className="nowrap"><Ago at={e.started_at} /><span className="ag-sub">n° {e.n8n_execution_id}</span></td>
-              {showWorkflow && <td><Link to={`/agence/workflows/${e.workflow_id}`}>{e.workflow_display_name}</Link>{e.workflow_display_name !== e.workflow_name && <span className="ag-sub">{e.workflow_name}</span>}</td>}
-              {showClient && <td>{e.client_id ? <Link to={`/agence/clients/${e.client_id}`}>{e.client_name}</Link> : <span className="muted">Non rattaché</span>}</td>}
+              {showWorkflow && <td style={{ minWidth: 170 }}><Link to={`/agence/workflows/${e.workflow_id}`} title={e.workflow_name}>{e.workflow_display_name}</Link>
+                {showClient && <span className="ag-sub">{e.client_id ? <Link to={`/agence/clients/${e.client_id}`}>{e.client_name}</Link> : 'Non rattaché'}</span>}</td>}
+              {showClient && !showWorkflow && <td>{e.client_id ? <Link to={`/agence/clients/${e.client_id}`}>{e.client_name}</Link> : <span className="muted">Non rattaché</span>}</td>}
               <td>{e.error_node ?? <span className="muted">—</span>}</td>
               <td><CategoryBadge category={e.error_category} /></td>
-              <td><span className="ag-clamp small" title={e.error_message ?? ''}>{e.error_message ?? <span className="muted">Détail en cours de récupération</span>}</span></td>
+              <td style={{ minWidth: 260 }}><span className="ag-clamp small" title={e.error_message ?? ''}>{e.error_message ?? <span className="muted">Détail en cours de récupération</span>}</span></td>
               <td className="actions">
                 {e.handled_at ? (
                   <><Badge tone="good" title={`Traitée le ${fmtDateTime(e.handled_at)}`}>Traitée</Badge>{' '}
@@ -400,14 +401,12 @@ export function CategoryCounts({ rows, total }: { rows: { category: string; n: n
   const max = Math.max(...rows.map((r) => r.n));
   const sum = total ?? rows.reduce((s, r) => s + r.n, 0);
   return (
-    <ul className="ag-list">
+    <ul className="ag-cats">
       {[...rows].sort((a, b) => b.n - a.n).map((c) => (
         <li key={c.category}>
-          <span className="main-col"><CategoryBadge category={c.category} />
-            <span style={{ display: 'block', marginTop: '.35rem' }}><span className="ag-bar-row"><span style={{ background: 'var(--surface-2)', borderRadius: 4, height: 6, display: 'block' }}>
-              <span style={{ width: `${(c.n / max) * 100}%`, background: 'var(--critical)', height: 6, borderRadius: 4, display: 'block', opacity: .8 }} /></span>
-              <span className="small muted right">{c.n} · {fmtPct(sum ? c.n / sum : null)}</span></span></span>
-          </span>
+          <span><CategoryBadge category={c.category} /></span>
+          <span className="bar" aria-hidden="true"><span style={{ width: `${Math.max(3, (c.n / max) * 100)}%` }} /></span>
+          <span className="num">{fmtNum(c.n)} <span className="muted">· {fmtPct(sum ? c.n / sum : null)}</span></span>
         </li>
       ))}
     </ul>

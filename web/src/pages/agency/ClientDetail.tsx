@@ -50,7 +50,7 @@ export default function ClientDetail() {
                   {c.is_internal && <Badge>Interne</Badge>}
                   {c.archived_at && <Badge tone="warn">Archivé le {fmtDate(c.archived_at)}</Badge>}
                   <RiskBadge risks={s.risks} />
-                  {c.contact_name && <span>· {c.contact_name}{c.contact_email ? <> — <a href={`mailto:${c.contact_email}`}>{c.contact_email}</a></> : null}</span>}
+                  {c.contact_name && <span>{c.contact_name}{c.contact_email ? <> — <a href={`mailto:${c.contact_email}`}>{c.contact_email}</a></> : null}</span>}
                 </span>} />
               {s.risks.length > 0 && <div className="alert error">{s.risks.join(' · ')}</div>}
               <div className="ag-kpis">
@@ -89,11 +89,11 @@ function WorkflowsTab({ d, reload }: { d: Detail; reload: () => void }) {
     <Card>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Workflow</th><th>État</th><th className="num">Exéc. 30 j</th><th className="num">Réussite</th><th>Dernière exécution</th><th className="num">Erreurs non traitées (7 j)</th><th className="num">Temps gagné (mois)</th><th>Portail</th></tr></thead>
+          <thead><tr><th>Workflow</th><th>État</th><th className="num">Exéc. 30 j</th><th className="num">Réussite</th><th>Dernière exécution</th><th className="num" title="Erreurs non traitées sur 7 jours">Erreurs 7 j</th><th className="num" title="Temps gagné ce mois">Temps gagné</th><th>Portail</th></tr></thead>
           <tbody>
             {d.workflows.map((w) => (
               <tr key={w.id}>
-                <td><Link to={`/agence/workflows/${w.id}`} style={{ fontWeight: 600 }}>{w.display_name || w.name}</Link>{w.display_name && <span className="ag-sub">{w.name}</span>}</td>
+                <td className="ag-name"><Link to={`/agence/workflows/${w.id}`} style={{ fontWeight: 600 }}>{w.display_name || w.name}</Link>{w.display_name && <span className="ag-sub">{w.name}</span>}</td>
                 <td><WorkflowSwitch wf={w} onChanged={reload} withLabel /></td>
                 <td className="num">{fmtNum(w.exec_30d)}</td>
                 <td className="num"><Rate value={w.success_rate_30d} /></td>
@@ -360,21 +360,23 @@ function CostsTab({ d }: { d: Detail }) {
         <Stat label="Coût IA sur 90 jours" value={fmtUsd(total)} />
         <Stat label="Facturation mensuelle" value={fmtUsd(s.monthly_fee_usd)} hint={s.monthly_fee_usd ? `Marge du mois : ${fmtUsd(s.monthly_fee_usd - s.llm_month_usd)}` : undefined} />
       </div>
-      <Card title="Coût par jour (90 jours)" actions={<Link to="/agence/couts" className="small">Tous les coûts</Link>}>
-        <CostBars data={byDay} />
-      </Card>
-      <Card title="Par fournisseur et modèle (90 jours)">
+      <div className="ag-2-1">
+        <Card title="Coût par jour (90 jours)" actions={<Link to="/agence/couts" className="small">Tous les coûts</Link>}>
+          <CostBars data={byDay} />
+        </Card>
+      <Card title="Par modèle (90 jours)">
         {byModel.length ? (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Fournisseur</th><th>Modèle</th><th className="num">Coût</th><th style={{ width: '30%' }}>Part</th></tr></thead>
+              <thead><tr><th>Modèle</th><th className="num">Coût</th><th style={{ width: '25%' }}>Part</th></tr></thead>
               <tbody>{byModel.map((r) => (
-                <tr key={`${r.provider}|${r.model}`}><td>{r.provider}</td><td className="mono">{r.model}</td><td className="num">{fmtUsd(r.cost_usd)}</td><td><ShareBar value={r.cost_usd} max={max} /></td></tr>
+                <tr key={`${r.provider}|${r.model}`}><td className="nowrap"><span className="mono">{r.model}</span><span className="ag-sub">{r.provider}</span></td><td className="num">{fmtUsd(r.cost_usd)}</td><td><ShareBar value={r.cost_usd} max={max} /></td></tr>
               ))}</tbody>
             </table>
           </div>
         ) : <Empty>Aucun coût enregistré sur 90 jours.</Empty>}
       </Card>
+      </div>
     </div>
   );
 }

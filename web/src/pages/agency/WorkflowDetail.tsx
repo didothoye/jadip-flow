@@ -29,7 +29,7 @@ export default function WorkflowDetail() {
       <Async {...r}>
         {(d) => {
           const w = d.workflow;
-          const unhandled = d.errors.filter((e) => !e.handled_at).length;
+          const unhandled = w.unhandled_errors_7d as number;
           return (
             <>
               <PageHead crumb={<><Link to="/agence/workflows">Workflows</Link>{w.client_id && <> · <Link to={`/agence/clients/${w.client_id}`}>{w.client_name}</Link></>}</>}
@@ -46,7 +46,7 @@ export default function WorkflowDetail() {
                   <WorkflowSwitch wf={w} withLabel onChanged={() => r.reload()} />
                   <a className="btn" href={d.n8n_url} target="_blank" rel="noopener noreferrer">Ouvrir dans n8n ↗</a>
                 </>} />
-              <div className="ag-kpis">
+              <div className="ag-kpis cols-3">
                 <Stat label="Exécutions 30 j" value={fmtNum(w.exec_30d)} hint={`${fmtNum(w.fail_30d)} échec(s)`} />
                 <Stat label="Taux de réussite 30 j" value={<Rate value={w.success_rate_30d} />} />
                 <Stat label="Durée moyenne" value={fmtMs(w.avg_ms)} />

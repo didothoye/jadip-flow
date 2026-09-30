@@ -20,6 +20,7 @@ export default function Workflows() {
   const { clients } = useClientList();
   const instances = useApi<{ id: string; name: string }[]>('/api/admin/instances');
   const r = useApi<any[]>(`/api/admin/workflows${qs({ search: debounced, client_id: clientId, instance_id: instanceId, unassigned: unassigned || undefined, include_deleted: deleted || undefined })}`);
+  const multi = (instances.data?.length ?? 0) > 1;
   const patchRow = (id: string, active: boolean) => r.setData((rows) => rows?.map((w) => (w.id === id ? { ...w, active } : w)) ?? rows);
   return (
     <div className="stack">
@@ -44,23 +45,23 @@ export default function Workflows() {
               <div className="table-wrap">
                 <table className="table">
                   <thead>
-                    <tr><th>Workflow</th><th>Client</th><th>Instance</th><th>État</th><th className="num">Exéc. 30 j</th><th className="num">Réussite</th><th>Dernière exécution</th><th className="num">Erreurs non traitées (7 j)</th><th>Étiquettes</th></tr>
+                    <tr><th>Workflow</th><th>Client</th>{multi && <th>Instance</th>}<th>État</th><th className="num">Exéc. 30 j</th><th className="num">Réussite</th><th>Dernière exécution</th><th className="num" title="Erreurs non traitées sur 7 jours">Erreurs 7 j</th><th>Étiquettes</th></tr>
                   </thead>
                   <tbody>
                     {rows.map((w) => (
                       <tr key={w.id} className={w.deleted_at ? 'muted-row' : ''}>
-                        <td>
+                        <td className="ag-name">
                           <Link to={`/agence/workflows/${w.id}`} style={{ fontWeight: 600 }}>{w.name}</Link>
                           {w.display_name && <span className="ag-sub">Portail : {w.display_name}</span>}
                           {w.deleted_at && <Badge tone="warn">Supprimé dans n8n</Badge>}
                         </td>
                         <td>{w.client_id ? <Link to={`/agence/clients/${w.client_id}`}>{w.client_name}</Link> : <Badge tone="warn">Non rattaché</Badge>}
                           {w.client_id && <span className="ag-sub">{w.client_assignment === 'tag' ? 'Par étiquette' : 'Manuel'}</span>}</td>
-                        <td className="small">{w.instance_name}</td>
+                        {multi && <td className="small">{w.instance_name}</td>}
                         <td><WorkflowSwitch wf={w} onChanged={(a) => patchRow(w.id, a)} withLabel /></td>
                         <td className="num">{fmtNum(w.exec_30d)}</td>
                         <td className="num"><Rate value={w.success_rate_30d} /></td>
-                        <td><Ago at={w.last_execution_at} />{w.last_status && <span style={{ display: 'block', marginTop: '.2rem' }}><StatusBadge status={w.last_status} /></span>}</td>
+                        <td><Ago at={w.last_execution_at} />{w.last_status && w.last_status !== 'success' && <span style={{ display: 'block', marginTop: '.2rem' }}><StatusBadge status={w.last_status} /></span>}</td>
                         <td className="num">{w.unhandled_errors_7d ? <Link to={`/agence/workflows/${w.id}?onglet=erreurs`}><Badge tone="bad">{w.unhandled_errors_7d}</Badge></Link> : <span className="muted">0</span>}</td>
                         <td><span className="ag-tags">{(w.tags ?? []).map((t: string) => <Badge key={t}>{t}</Badge>)}</span></td>
                       </tr>

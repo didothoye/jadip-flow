@@ -44,13 +44,13 @@ export default function Clients() {
                     <thead>
                       <tr>
                         <th>Client</th><th className="num">Workflows actifs</th><th className="num">Exécutions 30 j</th><th className="num">Réussite</th>
-                        <th>Dernière exécution</th><th className="num">Temps gagné (mois)</th><th className="num">Coût IA (mois)</th><th className="num">Alertes</th><th>Santé</th>
+                        <th>Dernière exécution</th><th className="num" title="Temps gagné ce mois">Temps gagné</th><th className="num" title="Coût IA du mois">Coût IA (mois)</th><th className="num">Alertes</th><th>Santé</th>
                       </tr>
                     </thead>
                     <tbody>
                       {list.map((c) => (
                         <tr key={c.id} className="clickable" onClick={(e) => { if (!(e.target as HTMLElement).closest('a')) nav(`/agence/clients/${c.id}`); }}>
-                          <td>
+                          <td className="ag-name">
                             <Link to={`/agence/clients/${c.id}`} style={{ fontWeight: 600 }}>{c.name}</Link>
                             <span className="ag-sub mono">client:{c.code}</span>
                             <span className="row" style={{ gap: '.3rem', marginTop: '.2rem' }}>

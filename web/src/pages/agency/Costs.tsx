@@ -70,6 +70,7 @@ function Breakdown({ clients }: { clients: ClientLite[] }) {
           const maxC = Math.max(0, ...d.byClient.map((x: any) => x.cost_usd));
           const maxW = Math.max(0, ...d.byWorkflow.map((x: any) => x.cost_usd));
           const maxM = Math.max(0, ...d.byModel.map((x: any) => x.cost_usd));
+          const hasTokens = d.byModel.some((x: any) => Number(x.input_tokens) || Number(x.output_tokens));
           return (
             <>
               <div className="grid cols-3">
@@ -77,29 +78,46 @@ function Breakdown({ clients }: { clients: ClientLite[] }) {
                 <Stat label="Attribué à un client" value={fmtUsd(total - un)} hint={total ? `${fmtNum(((total - un) / total) * 100)} % du total` : undefined} />
                 <Stat label="Non attribué" value={fmtUsd(un)} tone={un > 0 ? 'warn' : undefined} hint={un > 0 ? <Link to="/agence/couts?onglet=attribution">Définir des règles d’attribution</Link> : 'Tout est attribué'} />
               </div>
-              <Card title="Coût par jour"><CostBars data={d.byDay} /></Card>
-              <div className="grid cols-2">
+              <div className="ag-2-1">
+                <Card title="Coût par jour"><CostBars data={d.byDay} /></Card>
                 <Card title="Par client">
                   {d.byClient.length ? (
                     <div className="table-wrap"><table className="table">
-                      <thead><tr><th>Client</th><th className="num">Coût</th><th style={{ width: '35%' }}>Part</th></tr></thead>
+                      <thead><tr><th>Client</th><th className="num">Coût</th></tr></thead>
                       <tbody>{d.byClient.map((x: any) => (
                         <tr key={x.client_id ?? 'none'}>
-                          <td>{x.client_id ? <Link to={`/agence/clients/${x.client_id}?onglet=couts`}>{x.client_name}</Link> : <span className="muted">Non attribué</span>}</td>
-                          <td className="num">{fmtUsd(x.cost_usd)}</td>
-                          <td><ShareBar value={x.cost_usd} max={maxC} tone={x.client_id ? undefined : 'var(--axis)'} /></td>
+                          <td>{x.client_id ? <Link to={`/agence/clients/${x.client_id}?onglet=couts`}>{x.client_name}</Link> : <span className="muted">Non attribué</span>}
+                            <span style={{ display: 'block', marginTop: '.35rem' }}><ShareBar value={x.cost_usd} max={maxC} tone={x.client_id ? undefined : 'var(--axis)'} /></span></td>
+                          <td className="num">{fmtUsd(x.cost_usd)}<span className="ag-sub">{fmtNum(total ? (x.cost_usd / total) * 100 : 0)} %</span></td>
                         </tr>))}</tbody>
                     </table></div>
                   ) : <Empty>Aucun coût sur la période.</Empty>}
                 </Card>
+              </div>
+              <div className="grid cols-2">
+                <Card title="Par workflow">
+                  {d.byWorkflow.length ? (
+                    <div className="table-wrap"><table className="table">
+                      <thead><tr><th>Workflow</th><th>Client</th><th className="num">Coût</th><th style={{ width: '30%' }}>Part</th></tr></thead>
+                      <tbody>{d.byWorkflow.map((x: any, i: number) => (
+                        <tr key={`${x.workflow_id ?? 'none'}|${x.client_id ?? ''}|${i}`}>
+                          <td>{x.workflow_id ? <Link to={`/agence/workflows/${x.workflow_id}`}>{x.workflow_name}</Link> : <span className="muted">Sans workflow</span>}</td>
+                          <td>{x.client_id ? names[x.client_id] ?? '—' : <span className="muted">Non attribué</span>}</td>
+                          <td className="num">{fmtUsd(x.cost_usd)}</td>
+                          <td><ShareBar value={x.cost_usd} max={maxW} /></td>
+                        </tr>))}</tbody>
+                    </table></div>
+                  ) : <Empty>Aucun coût sur la période.</Empty>}
+                  <p className="muted small" style={{ marginBottom: 0 }}>Pour un workflow dont le fournisseur n’expose pas l’usage réel, indiquez un coût estimé par exécution dans sa fiche (onglet « Présentation au client ») : il est multiplié par le nombre d’exécutions.</p>
+                </Card>
                 <Card title="Par modèle">
                   {d.byModel.length ? (
                     <div className="table-wrap"><table className="table">
-                      <thead><tr><th>Modèle</th><th className="num">Jetons (entrée / sortie)</th><th className="num">Coût</th><th style={{ width: '25%' }}>Part</th></tr></thead>
+                      <thead><tr><th>Modèle</th>{hasTokens && <th className="num" title="Jetons en entrée / en sortie">Jetons (E / S)</th>}<th className="num">Coût</th><th style={{ width: '25%' }}>Part</th></tr></thead>
                       <tbody>{d.byModel.map((x: any) => (
                         <tr key={`${x.provider}|${x.model}`}>
-                          <td><span className="mono">{x.model}</span><span className="ag-sub">{PROVIDER_SHORT[x.provider] ?? x.provider}</span></td>
-                          <td className="num small">{Number(x.input_tokens) || Number(x.output_tokens) ? `${fmtNum(x.input_tokens)} / ${fmtNum(x.output_tokens)}` : '—'}</td>
+                          <td className="nowrap"><span className="mono">{x.model}</span><span className="ag-sub">{PROVIDER_SHORT[x.provider] ?? x.provider}</span></td>
+                          {hasTokens && <td className="num small">{Number(x.input_tokens) || Number(x.output_tokens) ? `${fmtNum(x.input_tokens)} / ${fmtNum(x.output_tokens)}` : '—'}</td>}
                           <td className="num">{fmtUsd(x.cost_usd)}</td>
                           <td><ShareBar value={x.cost_usd} max={maxM} /></td>
                         </tr>))}</tbody>
@@ -107,21 +125,6 @@ function Breakdown({ clients }: { clients: ClientLite[] }) {
                   ) : <Empty>Aucun coût sur la période.</Empty>}
                 </Card>
               </div>
-              <Card title="Par workflow">
-                {d.byWorkflow.length ? (
-                  <div className="table-wrap"><table className="table">
-                    <thead><tr><th>Workflow</th><th>Client</th><th className="num">Coût</th><th style={{ width: '30%' }}>Part</th></tr></thead>
-                    <tbody>{d.byWorkflow.map((x: any, i: number) => (
-                      <tr key={`${x.workflow_id ?? 'none'}|${x.client_id ?? ''}|${i}`}>
-                        <td>{x.workflow_id ? <Link to={`/agence/workflows/${x.workflow_id}`}>{x.workflow_name}</Link> : <span className="muted">Sans workflow</span>}</td>
-                        <td>{x.client_id ? names[x.client_id] ?? '—' : <span className="muted">Non attribué</span>}</td>
-                        <td className="num">{fmtUsd(x.cost_usd)}</td>
-                        <td><ShareBar value={x.cost_usd} max={maxW} /></td>
-                      </tr>))}</tbody>
-                  </table></div>
-                ) : <Empty>Aucun coût sur la période.</Empty>}
-                <p className="muted small" style={{ marginBottom: 0 }}>Pour un workflow dont le fournisseur n’expose pas l’usage réel, indiquez un coût estimé par exécution dans sa fiche (onglet « Présentation au client ») : il est multiplié par le nombre d’exécutions.</p>
-              </Card>
             </>
           );
         }}
@@ -158,7 +161,7 @@ function Accounts() {
   const toggle = async (a: Account, on: boolean) => { if (await run(() => api.patch(`/api/admin/llm/accounts/${a.id}`, { enabled: on }), on ? 'Compte activé.' : 'Compte désactivé.')) r.reload(); };
   return (
     <Card title="Comptes fournisseurs" actions={<button className="btn primary" onClick={() => setEdit('new')}>Ajouter un compte</button>}>
-      <p className="muted small" style={{ marginTop: 0 }}>Les coûts sont récupérés automatiquement chaque jour. Utilisez une clé d’administration en lecture : elle est chiffrée et n’est jamais réaffichée.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>Les coûts sont récupérés automatiquement toutes les 6 heures. Utilisez une clé d’administration en lecture : elle est chiffrée et n’est jamais réaffichée.</p>
       <Async {...r}>
         {(rows) => rows.length ? (
           <div className="table-wrap"><table className="table">

@@ -25,6 +25,7 @@ export default function Instances() {
   const [summary, setSummary] = useState<{ name: string; s: SyncSummary } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const { toast, confirm } = useUi();
+  const multi = (r.data?.length ?? 0) > 1;
   const reloadAll = () => { r.reload(); runs.reload(); };
   const sync = async (i: Instance) => {
     setBusyId(i.id);
@@ -97,12 +98,12 @@ export default function Instances() {
           {(rows) => rows.length ? (
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Début</th><th>Instance</th><th>Déclenchement</th><th>Statut</th><th className="num">Durée</th><th className="num">Workflows vus</th><th className="num">Créés / renommés / supprimés</th><th className="num">Exécutions importées</th><th>Erreur</th></tr></thead>
+                <thead><tr><th>Début</th>{multi && <th>Instance</th>}<th>Déclenchement</th><th>Statut</th><th className="num">Durée</th><th className="num">Workflows</th><th className="num" title="Créés / renommés / supprimés">Créés · renommés · suppr.</th><th className="num">Exécutions importées</th><th>Erreur</th></tr></thead>
                 <tbody>
                   {rows.map((s) => (
                     <tr key={s.id}>
                       <td className="nowrap">{fmtDateTime(s.started_at)}</td>
-                      <td>{s.instance_name}</td>
+                      {multi && <td>{s.instance_name}</td>}
                       <td>{s.trigger === 'manual' ? 'Manuel' : 'Planifié'}</td>
                       <td>{s.status === 'success' ? <Badge tone="good">Réussie</Badge> : s.status === 'error' ? <Badge tone="bad">Échec</Badge> : <Badge tone="info">En cours</Badge>}</td>
                       <td className="num">{fmtMs(s.duration_ms)}</td>
