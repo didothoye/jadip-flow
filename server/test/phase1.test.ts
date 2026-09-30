@@ -106,6 +106,7 @@ describe('Phase 1 — instances et synchronisation', () => {
     expect(s.executionsImported).toBe(2);
     const total = await one<any>('SELECT count(*)::int n FROM executions');
     expect(total.n).toBe(fake.state.executions.length);
+    expect(await one(`SELECT 1 FROM notifications WHERE title LIKE 'Workflows modifiés%'`)).toBeTruthy();
     const ev = await q<any>(`SELECT kind FROM workflow_events WHERE kind IN ('renamed','deleted')`);
     expect(ev.map((e) => e.kind).sort()).toEqual(['deleted', 'renamed']);
     const alert = await one<any>(`SELECT * FROM alerts WHERE kind='execution_failed' ORDER BY id DESC LIMIT 1`);

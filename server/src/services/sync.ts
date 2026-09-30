@@ -4,6 +4,7 @@ import { N8nClient, type N8nExecution } from '../n8n/client.js';
 import { classifyError } from './classify.js';
 import { getSettings } from './settings.js';
 import { onExecutionsFailed, onSyncResult } from './alerts.js';
+import { notifyInApp } from './notify.js';
 
 export interface Instance {
   id: string; name: string; base_url: string; public_url: string | null; api_key_enc: string;
@@ -54,6 +55,11 @@ export async function syncInstance(instanceId: string, trigger: 'schedule' | 'ma
       [run!.id, s.durationMs, s.workflowsSeen, s.created, s.renamed, s.deleted, s.executionsImported]);
     await q(`UPDATE instances SET last_sync_at=now(), last_sync_status='success', consecutive_sync_failures=0,
              health_status='ok', health_message='Synchronisation réussie', health_checked_at=now() WHERE id=$1`, [instanceId]);
+    if (inst.last_sync_at && (s.created || s.deleted || s.renamed)) {
+      // changements détectés après la première synchronisation : prévenir l'agence (dans l'application)
+      const parts = [s.created && `${s.created} nouveau(x)`, s.renamed && `${s.renamed} renommé(s)`, s.deleted && `${s.deleted} supprimé(s)`].filter(Boolean);
+      await notifyInApp({ title: `Workflows modifiés sur ${inst.name}`, body: `${parts.join(', ')}. Pensez à rattacher les nouveaux workflows à un client.`, link: '/agence/workflows?unassigned=1' });
+    }
     if (failed.length) await onExecutionsFailed(failed);
     await onSyncResult(instanceId, true);
   } catch (e: any) {
