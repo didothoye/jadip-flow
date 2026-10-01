@@ -1,10 +1,12 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi, useTitle } from '../../lib/hooks';
+import { useAuth } from '../../lib/auth';
 import { fmtDateTime, fmtNum, fmtPct, fmtUsd, fromNow } from '../../lib/format';
-import { Async, Card, Empty, HealthBadge, PageHead } from '../../components/ui';
+import { Async, Card, Empty, HealthBadge } from '../../components/ui';
+import { Icon, type IconName } from '../../components/icons';
 import { DailyBars } from '../../components/charts';
-import { Ago, CategoryBadge, CategoryCounts, rateTone, type ErrorRow } from './shared';
+import { Ago, CategoryBadge, CategoryCounts, type ErrorRow } from './shared';
 
 interface Overview {
   overview: {
@@ -18,12 +20,13 @@ interface Overview {
   instances: { id: string; name: string; health_status: string; health_message: string | null; last_sync_at: string | null; last_sync_status: string | null }[];
 }
 
-function Kpi({ to, label, value, hint, tone }: { to: string; label: string; value: ReactNode; hint?: ReactNode; tone?: 'good' | 'bad' | 'warn' }) {
-  const color = tone === 'good' ? 'var(--good)' : tone === 'bad' ? 'var(--bad)' : tone === 'warn' ? 'var(--warn)' : undefined;
+const toneColor = (tone?: 'good' | 'bad' | 'warn') => (tone ? `var(--${tone})` : undefined);
+
+function Kpi({ to, icon, label, value, hint, tone }: { to: string; icon: IconName; label: string; value: ReactNode; hint?: ReactNode; tone?: 'good' | 'bad' | 'warn' }) {
   return (
     <Link to={to} className="card stat">
-      <span className="label">{label}</span>
-      <span className="value" style={{ color }}>{value}</span>
+      <span className="label"><span style={{ color: toneColor(tone) ?? 'var(--brand)', display: 'inline-flex' }}><Icon name={icon} size={17} stroke={2} /></span>{label}</span>
+      <span className="value" style={{ color: toneColor(tone) }}>{value}</span>
       {hint && <span className="hint">{hint}</span>}
     </Link>
   );
@@ -31,56 +34,83 @@ function Kpi({ to, label, value, hint, tone }: { to: string; label: string; valu
 
 export default function Dashboard() {
   useTitle('Tableau de bord');
+  const { user } = useAuth();
   const r = useApi<Overview>('/api/admin/overview');
+  const { reload } = r;
+  useEffect(() => {
+    window.addEventListener('jf:synced', reload);
+    return () => window.removeEventListener('jf:synced', reload);
+  }, [reload]);
   return (
     <div className="stack">
-      <PageHead title="Tableau de bord" sub="État de la flotte n8n et des clients en un coup d’œil."
-        actions={<button className="btn" onClick={r.reload} disabled={r.loading}>{r.loading ? 'Actualisation…' : 'Actualiser'}</button>} />
+      <div className="greet">
+        <div>
+          <div className="hello">Bonjour,</div>
+          <h1>{user?.name ?? 'Agence'}</h1>
+          {r.data && (
+            <div className="ctx">
+              AGENCE · {fmtNum(r.data.overview.clients)} client{r.data.overview.clients > 1 ? 's' : ''} · {fmtNum(r.data.overview.instances)} instance{r.data.overview.instances > 1 ? 's' : ''} n8n
+            </div>
+          )}
+        </div>
+        <div className="tools">
+          <button className="icon-btn" onClick={reload} disabled={r.loading} aria-label="Actualiser" title="Actualiser"><Icon name="sync" /></button>
+        </div>
+      </div>
       <Async {...r}>
         {(d) => {
           const o = d.overview;
           const atRisk = d.clients.filter((c) => c.at_risk && !c.archived_at);
           const unhealthy = d.instances.filter((i) => i.health_status !== 'ok');
-          const allGood = !unhealthy.length && !atRisk.length && !d.errors.length && !o.alerts_open;
+          const watch = [
+            unhealthy.length ? `${unhealthy.length} instance(s) en difficulté` : null,
+            atRisk.length ? `${atRisk.length} client(s) à risque` : null,
+            d.errors.length ? `${d.errors.length >= 10 ? '10+' : d.errors.length} erreur(s) non traitée(s)` : null,
+          ].filter(Boolean);
           return (
             <>
-              {allGood ? (
-                <div className="alert success">Tout est opérationnel : aucune instance en difficulté, aucun client à risque, aucune erreur non traitée.</div>
-              ) : (
-                <div className="alert warn">
-                  À surveiller :{' '}
-                  {[
-                    unhealthy.length ? `${unhealthy.length} instance(s) en difficulté` : null,
-                    atRisk.length ? `${atRisk.length} client(s) à risque` : null,
-                    d.errors.length ? `${d.errors.length >= 10 ? '10+' : d.errors.length} erreur(s) non traitée(s)` : null,
-                    o.alerts_open ? `${o.alerts_open} alerte(s) ouverte(s)` : null,
-                  ].filter(Boolean).join(' · ')}.
-                </div>
-              )}
-
-              <div className="ag-kpis">
-                <Kpi to="/agence/executions" label="Exécutions aujourd’hui" value={fmtNum(o.exec_today)}
+              <div className="ag-kpis cols-3">
+                <Kpi to="/agence/executions" icon="bolt" label="Exécutions aujourd’hui" value={fmtNum(o.exec_today)}
                   hint={o.fail_today ? <span style={{ color: 'var(--bad)' }}>{fmtNum(o.fail_today)} en échec</span> : 'Aucun échec'} />
-                <Kpi to="/agence/executions" label="Taux de réussite (7 j)" value={fmtPct(o.success_rate_week, 1)} tone={rateTone(o.success_rate_week)}
-                  hint={`${fmtNum(o.exec_week)} exécutions · ${fmtNum(o.fail_week)} échecs`} />
-                <Kpi to="/agence/alertes" label="Alertes ouvertes" value={fmtNum(o.alerts_open)} tone={o.alerts_open ? 'bad' : 'good'} hint="À prendre en compte" />
-                <Kpi to="/agence/instances" label="Instances n8n" value={fmtNum(o.instances)} tone={o.instances_unhealthy ? 'bad' : undefined}
-                  hint={o.instances_unhealthy ? `${o.instances_unhealthy} en difficulté` : 'Toutes opérationnelles'} />
-                <Kpi to="/agence/clients" label="Clients" value={fmtNum(o.clients)} hint={atRisk.length ? <span style={{ color: 'var(--bad)' }}>{atRisk.length} à risque</span> : 'Aucun à risque'} />
-                <Kpi to="/agence/workflows" label="Workflows actifs" value={fmtNum(o.workflows_active)} hint={`${fmtNum(o.workflows_inactive)} inactif(s)`} />
-                <Kpi to="/agence/workflows?non_rattaches=1" label="Non rattachés" value={fmtNum(o.workflows_unassigned)} tone={o.workflows_unassigned ? 'warn' : undefined} hint="Sans client associé" />
-                <Kpi to="/agence/couts" label="Coût IA du mois" value={fmtUsd(o.llm_month_usd)} hint="Tous clients confondus" />
+                <Kpi to="/agence/alertes" icon="alert" label="Alertes ouvertes" value={fmtNum(o.alerts_open)} tone={o.alerts_open ? 'bad' : 'good'}
+                  hint={o.alerts_open ? 'À prendre en compte' : 'Rien à signaler'} />
+                <Kpi to="/agence/workflows?non_rattaches=1" icon="flow" label="Non rattachés" value={fmtNum(o.workflows_unassigned)} tone={o.workflows_unassigned ? 'warn' : undefined}
+                  hint="Workflows sans client associé" />
               </div>
+              <p className="note-line">
+                {watch.length
+                  ? <>À surveiller : <strong>{watch.join(' · ')}</strong>.</>
+                  : <>Tout est opérationnel : aucune instance en difficulté, aucun client à risque, aucune erreur non traitée.</>}
+              </p>
+
+              <section className="hero" aria-label="Santé de la flotte n8n">
+                <div className="top">
+                  <span className="row" style={{ gap: '.5rem' }}>Santé de la flotte n8n <Icon name="pulse" /></span>
+                  <Link to="/agence/executions">Détail <Icon name="chevron" size={18} /></Link>
+                </div>
+                <div className="big">{fmtPct(o.success_rate_week, 1)}</div>
+                <div className="facts">
+                  <span>de réussite sur 7 jours · <strong>{fmtNum(o.exec_week)}</strong> exécutions, <strong>{fmtNum(o.fail_week)}</strong> échecs</span>
+                </div>
+                <div className="facts">
+                  <span>Clients : <strong>{fmtNum(o.clients)}</strong>{atRisk.length ? ` (${atRisk.length} à risque)` : ''}</span>
+                  <span>Workflows actifs : <strong>{fmtNum(o.workflows_active)}</strong>{o.workflows_inactive ? ` (${fmtNum(o.workflows_inactive)} inactifs)` : ''}</span>
+                  <span>Instances : <strong>{o.instances_unhealthy ? `${o.instances_unhealthy} en difficulté` : 'opérationnelles'}</strong></span>
+                  <span>Coût IA du mois : <strong>{fmtUsd(o.llm_month_usd)}</strong></span>
+                </div>
+              </section>
 
               <div className="ag-2-1">
-                <Card title="Exécutions des 14 derniers jours" actions={<Link to="/agence/executions" className="small">Toutes les exécutions</Link>}>
+                <Card title={<>Exécutions <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>sur 14 jours</span></>}
+                  actions={<Link to="/agence/executions">Toutes <Icon name="chevron" size={15} stroke={2.2} /></Link>}>
                   <DailyBars data={d.series} />
                 </Card>
-                <Card title="Instances n8n" actions={<Link to="/agence/instances" className="small">Gérer</Link>}>
+                <Card title="Instances n8n" actions={<Link to="/agence/instances">Gérer</Link>}>
                   {d.instances.length ? (
                     <ul className="ag-list">
                       {d.instances.map((i) => (
                         <li key={i.id}>
+                          <span className={`ag-tile ${i.health_status === 'ok' ? 'good' : 'bad'}`}><Icon name="server" size={18} /></span>
                           <span className="main-col">
                             <span className="title">{i.name}</span>
                             <span className="meta" style={{ display: 'block' }} title={i.last_sync_at ? fmtDateTime(i.last_sync_at) : undefined}>
@@ -97,15 +127,16 @@ export default function Dashboard() {
               </div>
 
               <div className="ag-2-1">
-                <Card title="Erreurs récentes non traitées" actions={<Link to="/agence/erreurs?non_traitees=1" className="small">Toutes les erreurs</Link>}>
+                <Card title="À traiter" actions={<Link to="/agence/erreurs?non_traitees=1">Toutes les erreurs <Icon name="chevron" size={15} stroke={2.2} /></Link>}>
                   {d.errors.length ? (
                     <ul className="ag-list">
                       {d.errors.map((e) => (
                         <li key={e.id}>
+                          <span className="ag-tile bad"><Icon name="alert" size={18} stroke={2} /></span>
                           <span className="main-col">
                             <Link to={`/agence/workflows/${e.workflow_id}`} className="title">{e.workflow_display_name}</Link>
                             <span className="meta" style={{ display: 'block' }}>{e.client_name ?? 'Non rattaché'} · <Ago at={e.started_at} />{e.error_node ? ` · nœud « ${e.error_node} »` : ''}</span>
-                            <span className="small ag-clamp" style={{ maxWidth: '100%' }}>{e.error_message ?? 'Détail en cours de récupération'}</span>
+                            <span className="small ag-clamp mono" style={{ maxWidth: '100%', color: 'var(--muted)' }}>{e.error_message ?? 'Détail en cours de récupération'}</span>
                           </span>
                           <CategoryBadge category={e.error_category} />
                         </li>
@@ -114,7 +145,7 @@ export default function Dashboard() {
                   ) : <Empty>Aucune erreur en attente de traitement.</Empty>}
                 </Card>
                 <div className="stack">
-                  <Card title="Clients à risque" actions={<Link to="/agence/clients" className="small">Tous les clients</Link>}>
+                  <Card title="Clients à risque" actions={<Link to="/agence/clients">Tous</Link>}>
                     {atRisk.length ? (
                       <ul className="ag-list">
                         {atRisk.map((c) => (
@@ -128,7 +159,7 @@ export default function Dashboard() {
                       </ul>
                     ) : <Empty>Aucun client à risque.</Empty>}
                   </Card>
-                  <Card title="Erreurs par catégorie (7 j)">
+                  <Card title={<>Erreurs par catégorie <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>· 7 j</span></>}>
                     <CategoryCounts rows={d.categories} />
                   </Card>
                 </div>

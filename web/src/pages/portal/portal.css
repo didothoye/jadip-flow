@@ -159,3 +159,14 @@
 .p-wf .state, .page-head .state { align-items: baseline; }
 .p-wf .state .dot, .page-head .state .dot { flex-shrink: 0; transform: translateY(-1px); }
 .p-wf .facts { grid-template-columns: 1.25fr 1fr 1fr; }
+
+/* refonte 2026-10 : bandeau et cartes plus doux */
+.p-banner { border-radius: 18px; padding: 1rem 1.25rem; }
+.p-wf:hover { border-color: transparent; box-shadow: 0 6px 22px rgb(18 20 43 / .1); }
+.p-wf .more { color: var(--brand); font-weight: 600; }
+.p-choice { border-radius: 14px; }
+.p-choice:hover { border-color: var(--brand); }
+.p-choice.sel { background: var(--brand-bg); }
+.p-ticket .ic { background: var(--brand-bg); border-radius: 12px; }
+.p-runs .explain { border-radius: 12px; }
+@media (max-width: 640px) { .hero.split .chips { width: 100%; } .hero .chip { flex: 1; min-width: 0; padding: .6rem .7rem; } .hero .chip .v { font-size: 1.1rem; } }

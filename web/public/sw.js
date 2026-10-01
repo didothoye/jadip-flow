@@ -1,6 +1,6 @@
 // Service worker minimal : l'application s'installe et l'interface s'ouvre hors ligne ;
 // les données (/api) ne sont jamais mises en cache.
-const CACHE = 'jadip-flow-v1';
+const CACHE = 'jadip-flow-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/brand/icon.svg', '/brand/logo.svg'];
 
 self.addEventListener('install', (e) => {

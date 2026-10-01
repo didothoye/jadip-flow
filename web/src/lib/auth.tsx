@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
   useEffect(() => {
     if (brand) {
-      document.documentElement.style.setProperty('--brand', brand.primaryColor);
+      document.documentElement.style.setProperty('--brand-base', brand.primaryColor);
       document.documentElement.style.setProperty('--accent', brand.accentColor);
     }
   }, [brand]);

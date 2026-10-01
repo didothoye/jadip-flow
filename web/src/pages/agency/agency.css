@@ -82,3 +82,24 @@ details.ag-details summary { cursor: pointer; color: var(--link); font-size: .85
 .ag-cats .bar > span { display: block; height: 8px; border-radius: 4px; background: var(--critical); }
 .ag-cats .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table td.ag-name { min-width: 220px; }
+
+/* refonte 2026-10 : chiffres plus grands, listes avec pastille d'icône */
+.ag-kpis { gap: 1rem; }
+.ag-kpis .stat { padding: 1.1rem 1.25rem; }
+.ag-kpis .stat .value { font-size: 1.9rem; }
+.ag-kpis a.card:hover { border-color: transparent; filter: brightness(1.03); }
+.ag-list > li { justify-content: flex-start; padding: .85rem 0; }
+.ag-list .title { font-size: .98rem; }
+.ag-tile { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; background: var(--surface-2); color: var(--text-2); }
+.ag-tile.good { background: var(--good-bg); color: var(--good); }
+.ag-tile.bad { background: var(--bad-bg); color: var(--bad); }
+.ag-chip { border-color: var(--border); background: var(--surface-2); padding: .4rem .85rem; }
+.ag-chip.active { color: var(--brand-ink); }
+.ag-chip.active .n { color: inherit; opacity: .8; }
+.ag-avatar { background: var(--brand-bg); color: var(--brand); border-radius: 14px; }
+.ag-logo { border-radius: 14px; }
+.ag-cats .bar { height: 8px; border-radius: 999px; }
+.ag-cats .bar > span { border-radius: 999px; }
+.ag-sticky-actions { background: var(--brand-bg); border-radius: 14px; }
+.ag-json { border-radius: 12px; }
+@media (max-width: 640px) { .ag-kpis .stat .value { font-size: 1.4rem; } }

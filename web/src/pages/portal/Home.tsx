@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useApi, useTitle } from '../../lib/hooks';
 import { useAuth } from '../../lib/auth';
 import { fmtDuration, fmtNum, fmtPct } from '../../lib/format';
-import { Async, Empty, PageHead, Stat } from '../../components/ui';
+import { Async, Empty } from '../../components/ui';
 import { rateTone, shortAgo, useWorkflowControls, WfState, WfToggle, type WfCard } from './shared';
 
 interface HomeData {
@@ -19,19 +19,39 @@ export default function Home() {
   const first = user?.name?.split(' ')[0];
   return (
     <div className="stack">
-      <PageHead crumb={first ? <span className="p-hello">Bonjour {first} 👋</span> : undefined} title="Vos automatisations" />
+      <div className="greet">
+        <div>
+          <div className="hello">Bonjour,</div>
+          <h1>{first ?? 'et bienvenue'}</h1>
+          {data && <div className="ctx">{data.client.name.toUpperCase()} · {fmtNum(data.summary.total)} automatisation{data.summary.total > 1 ? 's' : ''}</div>}
+        </div>
+      </div>
       <Async data={data} error={error} loading={loading}>
         {(d) => (
           <>
-            <Banner d={d} />
             {d.summary.total > 0 && (
-              <div className="grid cols-3 p-stats">
-                <Stat label="Automatisations actives" value={`${d.summary.active} / ${d.summary.total}`}
-                  hint={d.summary.active === d.summary.total ? 'Toutes sont en marche' : `${d.summary.total - d.summary.active} à l’arrêt`} />
-                <Stat label="Temps gagné ce mois" value={fmtDuration(d.summary.minutes_saved_month)}
-                  hint={d.summary.minutes_saved_month >= 480 ? `Soit environ ${fmtNum(Math.round(d.summary.minutes_saved_month / 480))} journées de travail` : 'Temps que vous n’avez pas passé à le faire à la main'} />
-                <Stat label="Réussite sur 30 jours" value={fmtPct(d.summary.success_rate_30d)} tone={rateTone(d.summary.success_rate_30d)}
-                  hint={d.summary.executions_30d ? `Sur ${fmtNum(d.summary.executions_30d)} passages` : 'Aucun passage sur la période'} />
+              <section className="hero split" aria-label="Temps gagné ce mois">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+                  <div className="top">Temps gagné ce mois</div>
+                  <div className="big">{fmtDuration(d.summary.minutes_saved_month)}</div>
+                  <div className="sub">
+                    {d.summary.minutes_saved_month >= 480
+                      ? <>Soit environ <strong>{fmtNum(Math.round(d.summary.minutes_saved_month / 480))} {Math.round(d.summary.minutes_saved_month / 480) > 1 ? 'journées' : 'journée'} de travail</strong> {Math.round(d.summary.minutes_saved_month / 480) > 1 ? 'épargnées' : 'épargnée'} à votre équipe</>
+                      : 'Temps que vous n’avez pas passé à le faire à la main'}
+                  </div>
+                </div>
+                <div className="chips">
+                  <div className="chip"><span className="k">Actives</span><span className="v">{d.summary.active} / {d.summary.total}</span></div>
+                  <div className="chip"><span className="k">Réussite 30 j</span><span className="v">{fmtPct(d.summary.success_rate_30d)}</span></div>
+                  <div className="chip"><span className="k">Passages 30 j</span><span className="v">{fmtNum(d.summary.executions_30d)}</span></div>
+                </div>
+              </section>
+            )}
+            <Banner d={d} />
+            {d.workflows.length > 0 && (
+              <div className="row between" style={{ padding: '.4rem .25rem 0' }}>
+                <h2 style={{ margin: 0, fontSize: '1.3rem' }}>Vos automatisations</h2>
+                <Link to="/portail/demandes/nouvelle" style={{ fontWeight: 600 }}>Faire une demande ›</Link>
               </div>
             )}
             {d.workflows.length === 0
