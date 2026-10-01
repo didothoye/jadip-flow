@@ -1,0 +1,2 @@
+15 3 * * * /root/backup_jadip_flow.sh >> /root/logs/backup-jadip-flow.log 2>&1; /usr/local/bin/kuma-signal backup_jadip_flow $?
+30 5 3,17 * * /root/test_restauration_jadip_flow.sh >> /root/logs/restauration-jadip-flow.log 2>&1

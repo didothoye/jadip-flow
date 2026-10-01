@@ -1,10 +1,10 @@
 # Rapport de livraison — Jadip Flow v1
 
-Date : 30 septembre 2026 · Dépôt : `didothoye/jadip-flow`, branche `claude/relaxed-newton-temyiq`.
+Date : 30 septembre 2026, mise en production le 1er octobre 2026 · Dépôt : `didothoye/jadip-flow`, branche `claude/relaxed-newton-temyiq`.
 
 ## État en une phrase
 
-Les quatre phases sont développées, testées (53 tests automatisés, dont le cloisonnement et 100 000 exécutions) et empaquetées pour votre VPS (pile Docker Compose validée de bout en bout, sauvegarde et restauration exécutées). **La mise en production n’est pas faite** : je n’ai pas d’accès à votre VPS depuis cet environnement, et votre GO est requis avant chaque mise en production.
+Les quatre phases sont développées, testées et **en production depuis le 1er octobre 2026** sur https://flow.jadipservices.com, branchées sur votre vrai n8n (68 workflows), avec alertes Telegram et e-mail, sauvegardes chiffrées hors site et sondes de supervision. La démonstration est retirée.
 
 ## Où le travail a été fait
 
@@ -55,6 +55,8 @@ Dans `docs/captures/` : tableau de bord agence (bureau et mobile), fiche client,
 - **Cabinet Lumière (démo)** — coûts masqués, relance non autorisée, un workflow inactif ;
 - comptes `demo-agence@jadipservices.com`, `aline@kivu.example`, `patrick@lumiere.example` (mot de passe `Demo2026Jadip`, modifiable via `DEMO_PASSWORD`).
 
+En production, la démonstration a servi à la recette du 30 septembre puis a été **retirée le 1er octobre** : instance « n8n de démonstration » supprimée, clients `demo-kivu` et `demo-lumiere` archivés, les trois comptes de démonstration désactivés, conteneur `jadip-flow-demo-n8n` supprimé (sauvegarde prise juste avant).
+
 ## Choix que j’ai tranchés seul
 
 | Sujet | Choix | Raison |
@@ -72,7 +74,41 @@ Dans `docs/captures/` : tableau de bord agence (bureau et mobile), fiche client,
 | Rôle base | Rôle propriétaire pour les migrations, rôle restreint pour l’application | Rend le journal d’audit réellement inaltérable pour l’application. |
 | Clients « à risque » | Aucune exécution depuis N jours (3 par défaut, réglable par client), > 20 % d’échecs sur 7 jours (au moins 5 exécutions), budget IA dépassé | Seuils raisonnables ; réglables dans Paramètres. |
 
-## Ce qui reste à faire de votre côté
+## Mise en production (30 septembre – 1er octobre 2026)
+
+### Ce qui a été fait
+
+| Élément | Réglage en production |
+|---|---|
+| Installation | `/srv/apps/jadip-flow` (dépôt cloné, clé de déploiement GitHub), `deploy/scripts/vps-install.sh` ; conteneurs `jadip-flow` et `jadip-flow-db` sur `proxy-net`, aucun port publié, limites mémoire du compose. |
+| Administrateur | `contact@jadipservices.com` (activation par lien, double authentification proposée). |
+| DNS | `flow.jadipservices.com` chez Cloudflare, proxifié comme les autres sous-domaines. |
+| Proxy | Hôte Nginx Proxy Manager n° 42 → `jadip-flow:3000`, Let’s Encrypt, HTTPS forcé, HTTP/2, HSTS, `client_max_body_size 55m`. |
+| Supervision | uptime-kuma : 32 « Jadip Flow » (HTTP `/healthz`, mot-clé `"status":"ok"`), 33 `backup_jadip_flow` (push), 34 `restauration_test_jadip_flow` (push). |
+| Sauvegardes | `/root/backup_jadip_flow.sh`, chaque jour à 03:15 : base + volume chiffrés gpg (phrase `/root/.jadip-flow-backup.gpgpass`, 600), 14 jours en local, copie hors site `b2-crypt:jadip-flow` ; `.env` et phrase copiés vers `b2-crypt:secrets/jadip-flow`. Test de restauration automatique les 3 et 17 du mois à 05:30 (`/root/test_restauration_jadip_flow.sh`). Copies versionnées dans `deploy/vps/`. |
+| E-mail | Zoho ZeptoMail, agent « jadip » : `smtp.zeptomail.com:465` SSL, expéditeur exact `Jadip Flow <notification@jadipservices.com>` ; alertes vers `ADMIN_NOTIFY_EMAIL` (votre Gmail). |
+| Telegram | Bot existant (celui de Mosolo) et votre discussion d’administration. |
+| n8n | Instance « n8n Jadip Services » (`http://root-n8n-1:5678`), clé API chiffrée dans l’application ; 68 workflows synchronisés, tous étiquetés `client:interne` (pas encore de clients réels, à votre demande). |
+| Interface | Nouveau design (palette Indigo, police Inter, thème sombre). |
+| Exploitation | Documenté dans `/srv/vps-ops` (synchronisation quotidienne ; seuls les fichiers compose de Jadip Flow y sont copiés, le code vit dans ce dépôt). |
+
+### Vérifications faites
+
+- `https://flow.jadipservices.com/healthz` : `"status":"ok"` ; conteneurs en bonne santé.
+- Démonstration testée sur l’URL publique : connexion agence et clients, cloisonnement (le client A ne voit rien du client B), alerte Telegram de test.
+- E-mail réel envoyé par l’application (`sendEmailNow`) et reçu en boîte de réception (SPF, DKIM, DMARC alignés).
+- Sauvegarde chiffrée, copie hors site, puis **test de restauration réussi** ; sauvegarde quotidienne du 1er octobre réussie.
+- Synchronisation du vrai n8n : santé « ok », dernière synchronisation en succès.
+
+### Ce qui reste de votre côté
+
+1. **Coûts IA** : saisir vous-même les clés d’administration OpenAI, Anthropic et OpenRouter (Coûts IA → Comptes fournisseurs), puis attribuer les coûts aux clients.
+2. **Clients réels** (Amani, Mosolo, PABEA, Grace) quand vous serez prêt : créer les fiches, poser les étiquettes `client:<code>` sur les workflows, inviter les contacts, rédiger les descriptions.
+3. **Alertes ouvertes** au 1er octobre : 27 workflows sans exécution récente et des échecs répétés d’« AGS Agent RAG » ; à trier (désactiver dans n8n ce qui ne sert plus, ou ajuster les seuils).
+4. Conserver la phrase de sauvegarde gpg et `APP_ENCRYPTION_KEY` dans votre gestionnaire de mots de passe (elles sont aussi copiées chiffrées hors site).
+5. Supprimer dans ZeptoMail l’agent « Jadip_flow », inutilisé ; envisager un bot Telegram dédié à Jadip Flow.
+
+## Ce qui restait à faire de votre côté (avant la mise en production)
 
 1. **Donner le GO de mise en production** et un moyen d’accès au VPS (ou lancer vous-même la procédure `docs/deploiement.md`, environ 15 minutes).
 2. Renseigner `deploy/.env` : secrets générés, SMTP Zoho, bot Telegram (jeton + votre identifiant de discussion), e-mail d’alerte.
@@ -91,6 +127,8 @@ Dans `docs/captures/` : tableau de bord agence (bureau et mobile), fiche client,
 - Après la mise en production : un test de restauration (`restore-test.sh`), et la réception d’une alerte Telegram (bouton « Envoyer un test » dans Paramètres).
 
 ## Limites connues
+
+- Le titre des alertes « Aucune exécution depuis — jour(s) » n’affiche pas le nombre de jours (valeur manquante dans le libellé) : à corriger.
 
 - Le journal d’audit peut toujours être altéré par un accès administrateur direct au serveur PostgreSQL (hors application) ; la copie chiffrée hors serveur en garde la trace.
 - La marque blanche et la facturation par client sont préparées en base, mais pas activées.
