@@ -5,12 +5,14 @@ import { requireAdmin } from '../../auth.js';
 import { notFound } from '../../lib/errors.js';
 import { idParam, numIdParam, parse, z } from '../../lib/validate.js';
 import { getSettings, saveSetting } from '../../services/settings.js';
-import { sendEmailNow, sendTelegramNow } from '../../services/notify.js';
+import { sendEmailNow } from '../../services/notify.js';
+import { ALERT_KINDS, ALERT_TYPES } from '../../services/alert-types.js';
+import { CHAT_ID_RE, TOKEN_RE, describeTelegramConfig, getTelegramConfig, saveTelegramConfig, sendTelegram } from '../../services/telegram.js';
 import { config } from '../../config.js';
 
 const ruleBody = z.object({
   name: z.string().min(1).max(120),
-  kind: z.enum(['execution_failed', 'workflow_inactive', 'failure_rate', 'sync_failed', 'llm_budget']),
+  kind: z.enum(['execution_failed', 'failure_rate', 'sync_failed', 'llm_budget']),
   client_id: z.string().uuid().nullable().optional(),
   workflow_id: z.string().uuid().nullable().optional(),
   threshold: z.number().min(0).nullable().optional(),
@@ -29,6 +31,13 @@ const settingsBody = z.object({
   sync: z.object({ maxInitialExecutions: z.number().int().min(100).max(1000000), errorDetailsPerSync: z.number().int().min(0).max(1000) }).optional(),
   reports: z.object({ autoSendDay: z.number().int().min(1).max(28) }).optional(),
   notifyAdminOnClientAction: z.boolean().optional(),
+  telegramAlerts: z.partialRecord(z.enum(ALERT_KINDS as [string, ...string[]]), z.boolean()).optional(),
+});
+
+const telegramBody = z.object({
+  // undefined = conserver, '' = effacer
+  bot_token: z.string().trim().max(200).refine((v) => v === '' || TOKEN_RE.test(v), 'Jeton de bot invalide : format attendu « 123456789:AAH… » (fourni par @BotFather).').optional(),
+  chat_id: z.string().trim().max(32).refine((v) => v === '' || CHAT_ID_RE.test(v), 'Identifiant de discussion invalide : nombre attendu (négatif pour un groupe, ex. -1001234567890).').optional(),
 });
 
 export default async function alertRoutes(app: FastifyInstance) {
@@ -89,9 +98,12 @@ export default async function alertRoutes(app: FastifyInstance) {
 
   app.get('/api/admin/settings', async (req) => {
     requireAdmin(req);
+    const [settings, telegram] = await Promise.all([getSettings(), describeTelegramConfig()]);
     return {
-      ...(await getSettings()),
-      channels: { telegram: !!(config.telegram.botToken && config.telegram.adminChatId), email: !!config.smtp.host, adminEmail: config.adminEmail || null },
+      ...settings,
+      telegram, // jeton masqué (4 derniers caractères), jamais en clair
+      alertTypes: ALERT_TYPES,
+      channels: { telegram: telegram.configured, email: !!config.smtp.host, adminEmail: config.adminEmail || null },
       timezone: config.timezone,
     };
   });
@@ -99,17 +111,37 @@ export default async function alertRoutes(app: FastifyInstance) {
   app.patch('/api/admin/settings', async (req) => {
     const a = requireAdmin(req);
     const b = parse(settingsBody, req.body);
-    for (const [k, v] of Object.entries(b)) if (v !== undefined) await saveSetting(k as any, v as any);
+    for (const [k, v] of Object.entries(b)) {
+      if (v === undefined) continue;
+      // interrupteurs Telegram : fusion avec l'existant pour ne pas perdre les autres types
+      if (k === 'telegramAlerts') { const cur = (await getSettings()).telegramAlerts; await saveSetting('telegramAlerts', { ...cur, ...(v as Record<string, boolean>) }); continue; }
+      await saveSetting(k as any, v as any);
+    }
     await audit({ actorUserId: a.userId, actorLabel: a.label, source: a.source, action: 'settings.updated', ip: req.ip, detail: b });
     return getSettings();
+  });
+
+  /** Compte Telegram de l'agence : stocké en base (jeton chiffré), prise d'effet immédiate. Le jeton n'est ni renvoyé ni journalisé. */
+  app.put('/api/admin/settings/telegram', async (req) => {
+    const a = requireAdmin(req);
+    const b = parse(telegramBody, req.body);
+    const r = await saveTelegramConfig({ botToken: b.bot_token, chatId: b.chat_id });
+    await audit({ actorUserId: a.userId, actorLabel: a.label, source: a.source, action: 'settings.telegram_updated', ip: req.ip,
+      detail: { chat_id: r.chatId, token_changed: b.bot_token !== undefined, token_masked: r.tokenMasked } });
+    return r;
   });
 
   app.post('/api/admin/settings/test-channel', async (req) => {
     requireAdmin(req);
     const b = parse(z.object({ channel: z.enum(['telegram', 'email']) }), req.body);
     try {
-      if (b.channel === 'telegram') await sendTelegramNow(config.telegram.adminChatId, `✅ Test ${config.brand.productName} : le canal Telegram fonctionne.`);
-      else await sendEmailNow(config.adminEmail || req.actor!.label, `Test ${config.brand.productName}`, 'Le canal e-mail fonctionne.');
+      if (b.channel === 'telegram') {
+        const tg = await getTelegramConfig();
+        if (!tg.botToken || !tg.chatId) return { ok: false, message: 'Renseignez d’abord le jeton du bot et l’identifiant de la discussion, puis enregistrez.' };
+        await sendTelegram(tg.chatId, `✅ <b>${config.brand.productName}</b> : message de test reçu, les alertes Telegram arriveront ici.`);
+        return { ok: true, message: `Message de test envoyé à la discussion ${tg.chatId}. Vérifiez sa réception sur Telegram.` };
+      }
+      await sendEmailNow(config.adminEmail || req.actor!.label, `Test ${config.brand.productName}`, 'Le canal e-mail fonctionne.');
       return { ok: true, message: 'Message de test envoyé.' };
     } catch (e: any) {
       return { ok: false, message: e.message };

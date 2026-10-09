@@ -7,7 +7,7 @@ import { fmtDateTime, fmtNum } from '../../lib/format';
 import { Async, Badge, Card, Empty, Modal, PageHead, Switch, useAction, useUi } from '../../components/ui';
 import { Ago, ClientSelect, CopyField, Tabs, useClientList, useTab } from './shared';
 
-const TABS = ['general', 'equipe', 'webhooks', 'taches'] as const;
+const TABS = ['general', 'telegram', 'equipe', 'webhooks', 'taches'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function Settings() {
@@ -17,8 +17,9 @@ export default function Settings() {
     <div className="stack">
       <PageHead title="Paramètres" sub="Réglages de la plateforme, équipe de l’agence et intégrations." />
       <div>
-        <Tabs<Tab> value={tab} onChange={setTab} tabs={[['general', 'Général'], ['equipe', 'Équipe'], ['webhooks', 'Webhooks'], ['taches', 'Tâches planifiées']]} />
+        <Tabs<Tab> value={tab} onChange={setTab} tabs={[['general', 'Général'], ['telegram', 'Alertes Telegram'], ['equipe', 'Équipe'], ['webhooks', 'Webhooks'], ['taches', 'Tâches planifiées']]} />
         {tab === 'general' && <General />}
+        {tab === 'telegram' && <TelegramAlerts />}
         {tab === 'equipe' && <Team />}
         {tab === 'webhooks' && <Webhooks />}
         {tab === 'taches' && <Jobs />}
@@ -35,6 +36,9 @@ interface AppSettings {
   sync: { maxInitialExecutions: number; errorDetailsPerSync: number };
   reports: { autoSendDay: number };
   notifyAdminOnClientAction: boolean | unknown;
+  telegramAlerts: Record<string, boolean>;
+  telegram: { configured: boolean; tokenMasked: string | null; chatId: string | null; source: 'db' | 'env' | 'none' };
+  alertTypes: { kind: string; label: string; description: string; level: 'critical' | 'info'; telegramDefault: boolean }[];
   channels: { telegram: boolean; email: boolean; adminEmail: string | null };
   timezone: string;
 }
@@ -68,7 +72,7 @@ function GeneralForm({ s, onSaved }: { s: AppSettings; onSaved: () => void }) {
     }), 'Paramètres enregistrés.');
     if (ok) onSaved();
   };
-  const test = async (channel: 'telegram' | 'email') => {
+  const test = async (channel: 'email') => {
     setTesting(channel);
     try { const r = await api.post<{ ok: boolean; message: string }>('/api/admin/settings/test-channel', { channel }); toast(r.message, r.ok ? 'ok' : 'error'); }
     catch (e: any) { toast(e.message, 'error'); } finally { setTesting(null); }
@@ -118,9 +122,9 @@ function GeneralForm({ s, onSaved }: { s: AppSettings; onSaved: () => void }) {
       <Card title="Canaux de notification">
         <ul className="ag-list">
           <li>
-            <span className="main-col"><span className="title">Telegram</span><span className="meta" style={{ display: 'block' }}>{s.channels.telegram ? 'Robot et discussion de l’agence configurés.' : 'Non configuré (variables TELEGRAM_BOT_TOKEN et TELEGRAM_ADMIN_CHAT_ID).'}</span></span>
+            <span className="main-col"><span className="title">Telegram</span><span className="meta" style={{ display: 'block' }}>{s.channels.telegram ? <>Bot et discussion configurés · alertes critiques uniquement.</> : 'Non configuré.'}</span></span>
             <span className="row" style={{ gap: '.4rem' }}>{s.channels.telegram ? <Badge tone="good">Configuré</Badge> : <Badge>Inactif</Badge>}
-              <button className="btn small" disabled={!s.channels.telegram || testing === 'telegram'} onClick={() => test('telegram')}>Envoyer un test</button></span>
+              <Link className="btn small" to="/agence/parametres?onglet=telegram">Configurer</Link></span>
           </li>
           <li>
             <span className="main-col"><span className="title">E-mail</span><span className="meta" style={{ display: 'block' }}>{s.channels.email ? <>Serveur SMTP configuré{s.channels.adminEmail ? <> · envoi à {s.channels.adminEmail}</> : null}.</> : 'Non configuré (variables SMTP_*).'}</span></span>
@@ -130,6 +134,87 @@ function GeneralForm({ s, onSaved }: { s: AppSettings; onSaved: () => void }) {
           <li><span className="main-col"><span className="title">Application</span><span className="meta" style={{ display: 'block' }}>Alertes visibles dans Jadip Flow.</span></span><Badge tone="good">Toujours actif</Badge></li>
         </ul>
         <p className="muted small" style={{ marginBottom: 0 }}>Vos préférences personnelles (Telegram, e-mail) se règlent dans <Link to="/agence/compte">Mon compte</Link>.</p>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- alertes Telegram
+
+function TelegramAlerts() {
+  const r = useApi<AppSettings>('/api/admin/settings');
+  return <Async {...r}>{(s) => <TelegramPanel s={s} onSaved={r.reload} />}</Async>;
+}
+
+function TelegramPanel({ s, onSaved }: { s: AppSettings; onSaved: () => void }) {
+  const { run, busy } = useAction();
+  const { toast, confirm } = useUi();
+  const [token, setToken] = useState('');
+  const [chatId, setChatId] = useState(s.telegram.chatId ?? '');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  useEffect(() => { setChatId(s.telegram.chatId ?? ''); setToken(''); }, [s]);
+  const dirty = token.trim() !== '' || chatId.trim() !== (s.telegram.chatId ?? '');
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const body: Record<string, string> = { chat_id: chatId.trim() };
+    if (token.trim()) body.bot_token = token.trim();
+    const ok = await run(() => api.put('/api/admin/settings/telegram', body), 'Compte Telegram enregistré : les prochaines alertes l’utiliseront.');
+    if (ok) { setToken(''); setTestResult(null); onSaved(); }
+  };
+  const clear = async () => {
+    const c = await confirm({ title: 'Retirer le compte Telegram', danger: true, confirmLabel: 'Retirer', message: <>Le jeton et la discussion seront effacés : plus aucune alerte ne partira sur Telegram jusqu’à nouvelle configuration.</> });
+    if (c.ok && await run(() => api.put('/api/admin/settings/telegram', { bot_token: '', chat_id: '' }), 'Compte Telegram retiré.')) { setToken(''); setTestResult(null); onSaved(); }
+  };
+  const test = async () => {
+    setTesting(true); setTestResult(null);
+    try { const r = await api.post<{ ok: boolean; message: string }>('/api/admin/settings/test-channel', { channel: 'telegram' }); setTestResult(r); toast(r.ok ? 'Message de test envoyé.' : 'Échec de l’envoi du test.', r.ok ? 'ok' : 'error'); }
+    catch (e: any) { setTestResult({ ok: false, message: e.message }); } finally { setTesting(false); }
+  };
+  const toggle = async (kind: string, on: boolean) => {
+    if (await run(() => api.patch('/api/admin/settings', { telegramAlerts: { [kind]: on } }), on ? 'Envoi Telegram activé.' : 'Envoi Telegram désactivé.')) onSaved();
+  };
+  const critical = s.alertTypes.filter((t) => t.level === 'critical');
+  const info = s.alertTypes.filter((t) => t.level === 'info');
+  const TypeRow = ({ t }: { t: AppSettings['alertTypes'][number] }) => (
+    <li>
+      <span className="main-col"><span className="title">{t.label} {t.level === 'critical' ? <Badge tone="bad">Critique</Badge> : <Badge tone="info">Information</Badge>}</span><span className="meta" style={{ display: 'block' }}>{t.description}</span></span>
+      <Switch checked={s.telegramAlerts[t.kind] === true} onChange={(v) => toggle(t.kind, v)} disabled={busy} label={`${s.telegramAlerts[t.kind] ? 'Ne plus envoyer' : 'Envoyer'} « ${t.label} » sur Telegram`} />
+    </li>
+  );
+  return (
+    <div className="ag-1-1">
+      <Card title="Compte Telegram" actions={s.telegram.configured ? <Badge tone="good">Configuré</Badge> : <Badge>Non configuré</Badge>}>
+        <form className="form" onSubmit={save}>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Le bot et la discussion destinataire se modifient ici, sans toucher au fichier <code>.env</code> ni redémarrer le conteneur : la base de données fait foi et toute modification prend effet immédiatement.
+            {s.telegram.source === 'env' && <> Les valeurs affichées proviennent encore des variables d’environnement ; enregistrez pour les reprendre en base.</>}
+          </p>
+          <label className="field">Jeton du bot
+            <span className="help">Fourni par @BotFather (« 123456789:AAH… »). {s.telegram.tokenMasked ? <>Jeton actuel : <strong>{s.telegram.tokenMasked}</strong> — laissez vide pour le conserver.</> : 'Aucun jeton enregistré.'}</span>
+            <input type="password" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} placeholder={s.telegram.tokenMasked ? 'Nouveau jeton (facultatif)' : '123456789:AAH…'} />
+          </label>
+          <label className="field">Identifiant de la discussion destinataire
+            <span className="help">Compte personnel (nombre positif, obtenu via @userinfobot ; envoyez d’abord /start au bot) ou groupe (nombre négatif, souvent -100…, le bot devant être membre du groupe).</span>
+            <input inputMode="numeric" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="123456789 ou -1001234567890" />
+          </label>
+          <div className="ag-form-foot">
+            {s.telegram.configured && <button type="button" className="btn danger" onClick={clear} disabled={busy}>Retirer le compte</button>}
+            <button type="button" className="btn" onClick={test} disabled={!s.telegram.configured || testing || busy || dirty} title={dirty ? 'Enregistrez d’abord vos modifications.' : undefined}>{testing ? 'Envoi…' : 'Envoyer un message de test'}</button>
+            <button className="btn primary" disabled={busy || !dirty}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+          </div>
+          {dirty && s.telegram.configured && <p className="muted small" style={{ margin: 0 }}>Enregistrez avant d’envoyer un message de test.</p>}
+          {testResult && <div className={`alert ${testResult.ok ? 'success' : 'error'}`} role="status">{testResult.message}</div>}
+        </form>
+      </Card>
+      <Card title="Alertes envoyées sur Telegram">
+        <p className="muted small" style={{ marginTop: 0 }}>Seules les alertes activées ci-dessous partent sur Telegram ; toutes restent visibles dans le portail. Les critiques sont activées par défaut et ignorent les heures calmes. Les échecs répétés d’un même workflow sont regroupés (« 5 échecs en 15 min »).</p>
+        <h3 style={{ marginBottom: '.25rem' }}>Critiques</h3>
+        <ul className="ag-list">{critical.map((t) => <TypeRow key={t.kind} t={t} />)}</ul>
+        <h3 style={{ marginBottom: '.25rem', marginTop: '1rem' }}>Informations</h3>
+        <ul className="ag-list">{info.map((t) => <TypeRow key={t.kind} t={t} />)}</ul>
+        <p className="muted small" style={{ marginBottom: 0 }}>Les <Link to="/agence/alertes?onglet=regles">règles d’alerte</Link> peuvent en plus restreindre les canaux par client ou par workflow.</p>
       </Card>
     </div>
   );

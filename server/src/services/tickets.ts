@@ -55,7 +55,7 @@ export async function createTicket(actor: Actor & { clientId: string }, input: {
   await q(`INSERT INTO action_log(actor_user_id, actor_role, client_id, workflow_id, action, result, message) VALUES ($1,'client',$2,$3,'ticket','ok',$4)`,
     [actor.userId, actor.clientId, input.workflowId || null, `Demande n° ${t.id} : ${t.subject}`]);
   await notifyAdmins({
-    title: `Nouvelle demande — ${client?.name}`, clientId: actor.clientId, link: `/agence/demandes/${t.id}`, channels: ['app', 'telegram', 'email'],
+    kind: 'ticket_created', title: `Nouvelle demande — ${client?.name}`, clientId: actor.clientId, link: `/agence/demandes/${t.id}`, channels: ['app', 'telegram', 'email'],
     body: `${TICKET_KINDS[input.kind as keyof typeof TICKET_KINDS]} n° ${t.id} par ${actor.label}\n« ${t.subject} »${files.length ? `\n${files.length} pièce(s) jointe(s)` : ''}`,
   });
   await emitEvent('ticket.created', { ticketId: t.id, kind: t.kind, subject: t.subject, workflowId: t.workflow_id, by: actor.label }, actor.clientId);
@@ -76,7 +76,7 @@ export async function addMessage(actor: Actor, ticket: any, body: string, files:
   await q('UPDATE tickets SET status=$2, updated_at=now() WHERE id=$1', [ticket.id, newStatus]);
   await audit({ actorUserId: actor.userId || null, actorLabel: actor.label, source: actor.source, action: 'ticket.updated', targetType: 'ticket', targetId: ticket.id, clientId: ticket.client_id, ip: actor.ip, detail: { status: newStatus, message: !!messageId, attachments: files.length } });
   if (actor.role === 'client') {
-    await notifyAdmins({ title: `Réponse client — demande n° ${ticket.id}`, body: `${actor.label} : ${(body ?? '').slice(0, 300)}`, link: `/agence/demandes/${ticket.id}`, clientId: ticket.client_id });
+    await notifyAdmins({ kind: 'ticket_reply', title: `Réponse client — demande n° ${ticket.id}`, body: `${actor.label} : ${(body ?? '').slice(0, 300)}`, link: `/agence/demandes/${ticket.id}`, clientId: ticket.client_id });
   } else {
     await notifyClientUsers(ticket.client_id, {
       kind: 'info', title: `Votre demande n° ${ticket.id} : ${TICKET_STATUS[newStatus as keyof typeof TICKET_STATUS]}`,
