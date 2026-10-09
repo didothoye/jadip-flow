@@ -1,7 +1,8 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 import { one, pool, q, type Queryable } from '../db.js';
-import { getSettings } from './settings.js';
+import { getSettings, telegramEnabledFor } from './settings.js';
+import { getTelegramConfig, sendTelegram } from './telegram.js';
 import { inWindow, localHHMM, nextLocalTime } from '../lib/time.js';
 
 export interface Attachment { filename: string; path: string }
@@ -31,13 +32,17 @@ export async function notifyInApp(n: { userId?: string | null; clientId?: string
     [n.userId ?? null, n.clientId ?? null, n.title, n.body, n.link ?? null]);
 }
 
-/** Prévient l'agence (moi) par les canaux choisis. */
-export async function notifyAdmins(n: { title: string; body: string; link?: string; channels?: string[]; clientId?: string | null; bypassQuiet?: boolean }) {
+/**
+ * Prévient l'agence par les canaux choisis.
+ * `kind` (voir alert-types.ts) décide si le message part aussi sur Telegram, selon les interrupteurs de Paramètres › Alertes Telegram.
+ */
+export async function notifyAdmins(n: { kind: string; title: string; body: string; link?: string; channels?: string[]; clientId?: string | null; bypassQuiet?: boolean }) {
   const channels = n.channels ?? ['app', 'telegram'];
   if (channels.includes('app')) await notifyInApp({ title: n.title, body: n.body, link: n.link, clientId: n.clientId });
   const link = n.link ? `\n${config.publicUrl}${n.link}` : '';
-  if (channels.includes('telegram') && config.telegram.adminChatId) {
-    await enqueue({ channel: 'telegram', recipient: config.telegram.adminChatId, body: `<b>${escapeHtml(n.title)}</b>\n${escapeHtml(n.body)}${link}`, bypassQuiet: n.bypassQuiet });
+  if (channels.includes('telegram') && await telegramEnabledFor(n.kind)) {
+    const tg = await getTelegramConfig();
+    if (tg.chatId) await enqueue({ channel: 'telegram', recipient: tg.chatId, body: `<b>${escapeHtml(n.title)}</b>\n${escapeHtml(n.body)}${link}`, bypassQuiet: n.bypassQuiet });
   }
   if (channels.includes('email')) {
     const admins = await q<{ email: string }>(`SELECT email FROM users WHERE role='admin' AND disabled_at IS NULL AND notify_email`);
@@ -83,14 +88,8 @@ export async function sendEmailNow(to: string, subject: string, text: string, at
   await t.sendMail({ from: config.smtp.from, to, subject, text, html, attachments });
 }
 
-export async function sendTelegramNow(chatId: string, html: string) {
-  if (!config.telegram.botToken) throw new Error('Bot Telegram non configuré');
-  const res = await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: html.slice(0, 4000), parse_mode: 'HTML', disable_web_page_preview: true }),
-  });
-  if (!res.ok) throw new Error(`Telegram ${res.status}: ${(await res.text()).slice(0, 200)}`);
-}
+/** Envoi Telegram immédiat avec le compte enregistré dans Paramètres (jamais de jeton dans les erreurs). */
+export const sendTelegramNow = (chatId: string, html: string) => sendTelegram(chatId, html);
 
 /** Envoie les messages en attente dont l'heure est venue. */
 export async function flushOutbox(limit = 50): Promise<number> {

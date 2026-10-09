@@ -28,7 +28,7 @@ async function notifyClientAction(actor: Actor, wf: any, text: string) {
   if (actor.role !== 'client') return;
   const s = await getSettings();
   if (!s.notifyAdminOnClientAction) return;
-  await notifyAdmins({ title: `Action client : ${wf.client_name ?? ''}`, body: `${actor.label} — ${text} « ${wf.name} »`, link: `/agence/workflows/${wf.id}`, clientId: wf.client_id });
+  await notifyAdmins({ kind: 'client_action', title: `Action client : ${wf.client_name ?? ''}`, body: `${actor.label} — ${text} « ${wf.name} »`, link: `/agence/workflows/${wf.id}`, clientId: wf.client_id });
 }
 
 export interface ToggleOptions { pauseUntil?: Date | null; reason?: string }

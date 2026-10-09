@@ -203,7 +203,7 @@ describe('Phase 1 — tableau de bord et actions', () => {
     expect(new Date(p2.items[0].started_at) <= new Date(p1.items[4].started_at)).toBe(true);
   });
 
-  it('évalue les alertes périodiques (inactivité, taux d’échec)', async () => {
+  it('évalue les alertes périodiques (taux d’échec, budget IA)', async () => {
     await evaluatePeriodic();
     const kinds = await q<any>(`SELECT DISTINCT kind FROM alerts`);
     expect(kinds.map((k) => k.kind)).toContain('execution_failed');

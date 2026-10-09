@@ -3,16 +3,17 @@ import { one, q } from '../db.js';
 import { categoryLabels, clientExplanations, type ErrorCategory } from './classify.js';
 import { enqueue, escapeHtml, notifyClientUsers, notifyInApp } from './notify.js';
 import { emitEvent } from './webhooks.js';
-import { getSettings } from './settings.js';
+import { getSettings, telegramEnabledFor } from './settings.js';
+import { getTelegramConfig } from './telegram.js';
 
 export interface Rule {
   id: string; name: string; kind: string; client_id: string | null; workflow_id: string | null; threshold: number | null;
   window_hours: number; group_minutes: number; repeat_minutes: number; channels: string[]; enabled: boolean;
 }
 
+/** Règles installées au premier démarrage. L'inactivité d'un workflow n'est volontairement plus une alerte : un workflow qui ne tourne pas n'est pas un incident. */
 export const DEFAULT_RULES: Omit<Rule, 'id' | 'client_id' | 'workflow_id' | 'enabled'>[] = [
   { name: 'Échec d’exécution', kind: 'execution_failed', threshold: null, window_hours: 24, group_minutes: 15, repeat_minutes: 240, channels: ['app', 'telegram'] },
-  { name: 'Workflow sans exécution', kind: 'workflow_inactive', threshold: 3, window_hours: 24, group_minutes: 15, repeat_minutes: 1440, channels: ['app', 'telegram'] },
   { name: 'Taux d’échec élevé', kind: 'failure_rate', threshold: 20, window_hours: 24, group_minutes: 15, repeat_minutes: 720, channels: ['app', 'telegram'] },
   { name: 'Synchronisation en panne', kind: 'sync_failed', threshold: 2, window_hours: 24, group_minutes: 15, repeat_minutes: 120, channels: ['app', 'telegram', 'email'] },
   { name: 'Budget IA dépassé', kind: 'llm_budget', threshold: 80, window_hours: 24, group_minutes: 15, repeat_minutes: 1440, channels: ['app', 'telegram', 'email'] },
@@ -66,11 +67,20 @@ export async function resolveAlerts(dedupPrefix: string, exceptKeys: string[] = 
     [dedupPrefix, exceptKeys]);
 }
 
+/** Libellé d'une rafale : « 5 échecs en 15 min », « 3 occurrences en 2 h ». */
+export function burstLabel(kind: string, count: number, sinceMs: number) {
+  const noun = kind === 'execution_failed' ? (count > 1 ? 'échecs' : 'échec') : count > 1 ? 'occurrences' : 'occurrence';
+  const min = Math.max(1, Math.round(sinceMs / 60000));
+  const span = min >= 1440 ? `${Math.round(min / 1440)} j` : min >= 60 ? `${Math.round(min / 60)} h` : `${min} min`;
+  return `${count} ${noun} en ${span}`;
+}
+
 /**
- * Anti-bruit :
+ * Anti-rafale :
  *  - première notification immédiate ;
- *  - nouvelles occurrences regroupées, notifiées au plus une fois par « group_minutes » ;
+ *  - nouvelles occurrences regroupées, notifiées au plus une fois par « group_minutes » (« 5 échecs en 15 min ») ;
  *  - alerte persistante non acquittée rappelée après « repeat_minutes ».
+ * Telegram n'est utilisé que si la règle le prévoit ET si le type d'alerte est activé dans Paramètres › Alertes Telegram.
  */
 async function maybeNotify(alert: any, rule: Rule) {
   const now = Date.now();
@@ -82,14 +92,20 @@ async function maybeNotify(alert: any, rule: Rule) {
   if (!reason) return;
 
   const newCount = alert.occurrences - alert.notified_occurrences;
-  const prefix = reason === 'grouped' ? `${newCount} nouvelle(s) occurrence(s) — ` : reason === 'repeat' ? 'Rappel — ' : '';
+  const firstSeen = new Date(alert.first_seen_at).getTime();
+  const prefix = reason === 'grouped' ? `${burstLabel(alert.kind, newCount, now - (last ?? firstSeen))} — `
+    : reason === 'repeat' ? 'Rappel — '
+    : alert.occurrences > 1 ? `${burstLabel(alert.kind, alert.occurrences, Math.max(now - firstSeen, 60000))} — ` : '';
   const title = `${prefix}${alert.title}`;
   const link = alert.workflow_id ? `/agence/workflows/${alert.workflow_id}` : alert.client_id ? `/agence/clients/${alert.client_id}` : '/agence/alertes';
   if (rule.channels.includes('app')) await notifyInApp({ title, body: alert.message, link, clientId: alert.client_id });
-  if (rule.channels.includes('telegram') && config.telegram.adminChatId) {
-    const icon = alert.severity === 'critical' ? '🔴' : alert.severity === 'warning' ? '🟠' : 'ℹ️';
-    await enqueue({ channel: 'telegram', recipient: config.telegram.adminChatId,
-      body: `${icon} <b>${escapeHtml(title)}</b>\n${escapeHtml(alert.message)}\n${config.publicUrl}${link}`, bypassQuiet: alert.severity === 'critical' });
+  if (rule.channels.includes('telegram') && await telegramEnabledFor(alert.kind)) {
+    const tg = await getTelegramConfig();
+    if (tg.chatId) {
+      const icon = alert.severity === 'critical' ? '🔴' : alert.severity === 'warning' ? '🟠' : 'ℹ️';
+      await enqueue({ channel: 'telegram', recipient: tg.chatId,
+        body: `${icon} <b>${escapeHtml(title)}</b>\n${escapeHtml(alert.message)}\n${config.publicUrl}${link}`, bypassQuiet: alert.severity === 'critical' });
+    }
   }
   if (rule.channels.includes('email')) {
     const admins = await q<{ email: string }>(`SELECT email FROM users WHERE role='admin' AND disabled_at IS NULL AND notify_email`);
@@ -141,7 +157,7 @@ export async function onExecutionsFailed(executionIds: number[]) {
       rule, kind: 'execution_failed', dedupKey: `execution_failed:${workflowId}`,
       title: `Échec : ${who}${lastErr.workflow_name}`,
       message: `${list.length > 1 ? `${list.length} échecs. ` : ''}Nœud : ${lastErr.error_node ?? 'inconnu'} · ${categoryLabels[cat]}\n${(lastErr.error_message ?? '').slice(0, 300)}`,
-      severity: 'warning', clientId: lastErr.client_id, workflowId, increment: list.length,
+      severity: 'critical', clientId: lastErr.client_id, workflowId, increment: list.length,
     });
     // le client est prévenu (vocabulaire simple) une fois par alerte
     if (lastErr.client_id && lastErr.client_visible) {
@@ -180,37 +196,11 @@ export async function onSyncResult(instanceId: string, ok: boolean, error?: stri
   });
 }
 
-/** Évaluation périodique des règles d'état (inactivité, taux d'échec, budget). */
+/** Évaluation périodique des règles d'état (taux d'échec, budget). */
 export async function evaluatePeriodic() {
   await autoResolveRecovered();
-  await evaluateInactivity();
   await evaluateFailureRate();
   await evaluateBudgets();
-}
-
-async function evaluateInactivity() {
-  const rules = await rulesFor('workflow_inactive');
-  if (!rules.length) return;
-  const wfs = await q<any>(`
-    SELECT w.id, w.name, w.client_id, w.last_execution_at, c.name client_name, c.inactivity_days
-    FROM workflows w LEFT JOIN clients c ON c.id=w.client_id
-    WHERE w.active AND w.deleted_at IS NULL`);
-  const firing: string[] = [];
-  for (const w of wfs) {
-    const rule = pickRule(rules, w.client_id, w.id);
-    if (!rule) continue;
-    const days = Number(rule.client_id || rule.workflow_id ? rule.threshold : (w.inactivity_days ?? rule.threshold ?? 3));
-    const since = w.last_execution_at ? (Date.now() - new Date(w.last_execution_at).getTime()) / 86400000 : Infinity;
-    if (since < days) continue;
-    const key = `workflow_inactive:${w.id}`;
-    firing.push(key);
-    await raiseAlert({
-      rule, kind: 'workflow_inactive', dedupKey: key, clientId: w.client_id, workflowId: w.id,
-      title: `Aucune exécution depuis ${Number.isFinite(since) ? Math.floor(since) : '—'} jour(s) : ${w.name}`,
-      message: `${w.client_name ? `Client : ${w.client_name}. ` : ''}Le workflow est actif mais ne s’est pas exécuté depuis ${days} jour(s) ou plus.`,
-    });
-  }
-  await resolveAlerts('workflow_inactive:', firing);
 }
 
 async function evaluateFailureRate() {
