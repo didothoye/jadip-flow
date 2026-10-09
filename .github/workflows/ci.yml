@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # miroir public (évite la limite de téléchargement anonyme de Docker Hub sur les runners GitHub)
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_USER: jadip
           POSTGRES_PASSWORD: jadip
