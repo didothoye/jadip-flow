@@ -22,10 +22,10 @@ Classement automatique : **Authentification**, **Limite de débit**, **Réseau**
 
 ## Alertes
 
-- Types : échec d’exécution, workflow inactif depuis X jours, taux d’échec > seuil, synchronisation en panne, coût IA > budget.
+- Types : échec d’exécution, taux d’échec > seuil, synchronisation en panne (instance n8n injoignable), coût IA > budget. Un workflow qui ne s’exécute pas n’est **pas** un incident : il n’existe plus d’alerte d’inactivité (l’indicateur « client à risque » du tableau de bord reste visible).
 - Portée : globale, par client ou par workflow (la règle la plus précise s’applique).
-- **Anti-bruit** : la première occurrence est notifiée immédiatement ; les suivantes sont regroupées (au plus une notification par « fenêtre de regroupement ») ; une alerte persistante non acquittée est rappelée après le « délai de répétition ». Une alerte d’échec se résout seule dès qu’une exécution réussit.
-- Canaux : Telegram (votre bot), e-mail (Zoho), dans l’application. **Horaires calmes** (22 h – 7 h par défaut, fuseau Africa/Kinshasa) : les messages sont différés à la fin de la plage, sauf alertes critiques.
+- **Anti-rafale** : la première occurrence est notifiée immédiatement ; les suivantes sont regroupées en un seul message (« 5 échecs en 15 min », au plus une notification par « fenêtre de regroupement ») ; une alerte persistante non acquittée est rappelée après le « délai de répétition ». Une alerte d’échec se résout seule dès qu’une exécution réussit.
+- Canaux : Telegram (votre bot), e-mail (Zoho), dans l’application. Sur Telegram ne partent que les types activés dans **Paramètres › Alertes Telegram** (les critiques — échec d’exécution, instance injoignable — le sont par défaut ; les informations restent dans le portail). **Horaires calmes** (22 h – 7 h par défaut, fuseau Africa/Kinshasa) : les messages sont différés à la fin de la plage, sauf alertes critiques.
 - Le client concerné est aussi prévenu (s’il l’a choisi), une fois par incident, en français simple.
 
 ## Coûts IA et rapports
@@ -42,6 +42,10 @@ Les demandes des clients (modification, problème, question, avec pièces jointe
 ## Paramètres
 
 Horaires calmes, seuils « à risque », paramètres de synchronisation, jour d’envoi des rapports, notification des actions client, test des canaux, équipe (administrateurs), webhooks sortants, état des tâches planifiées.
+
+### Alertes Telegram
+
+Onglet réservé à l’administrateur. Le **jeton du bot** (BotFather) et l’**identifiant de la discussion** destinataire (compte ou groupe) se modifient ici, sans toucher au `.env` ni redémarrer : ils sont enregistrés en base (jeton chiffré, seuls ses 4 derniers caractères sont réaffichés) et pris en compte immédiatement. Au premier démarrage, les valeurs du `.env` sont reprises comme valeurs initiales ; ensuite la base fait foi. Le bouton **Envoyer un message de test** confirme la réception ou explique l’erreur de Telegram (jeton invalide, discussion introuvable, bot non démarré par l’utilisateur). En dessous, un interrupteur par type d’alerte choisit ce qui part sur Telegram.
 
 ## Journal d’audit
 

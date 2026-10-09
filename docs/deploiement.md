@@ -22,7 +22,7 @@ openssl rand -hex 24      # → APP_DB_PASSWORD (rôle applicatif restreint)
 openssl rand -base64 32   # → APP_ENCRYPTION_KEY
 ```
 
-Renseignez aussi SMTP (Zoho), `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ADMIN_CHAT_ID` (bot existant) et `ADMIN_NOTIFY_EMAIL`.
+Renseignez aussi SMTP (Zoho) et `ADMIN_NOTIFY_EMAIL`. `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ADMIN_CHAT_ID` sont facultatifs : ils ne servent que de valeurs initiales, reprises en base au premier démarrage ; le compte Telegram se gère ensuite dans **Paramètres › Alertes Telegram** (la base fait foi, modification sans redémarrage).
 
 **Important** : conservez `APP_ENCRYPTION_KEY` dans votre gestionnaire de mots de passe. Sans elle, les clés API chiffrées (n8n, fournisseurs d’IA) sont illisibles, même avec une sauvegarde.
 
@@ -109,7 +109,20 @@ Cette procédure a été exécutée avec succès pendant le développement (age 
 ```bash
 cd /srv/apps/jadip-flow && git pull
 cd deploy && docker compose build && docker compose up -d   # les migrations s’appliquent au démarrage
+docker compose logs --tail 50 jadip-flow                   # vérifier « migration appliquée : … »
 ```
+
+### Mise à jour « Alertes Telegram » (migration `002_alertes_telegram.sql`)
+
+Appliquée automatiquement au démarrage du conteneur (rôle propriétaire via `MIGRATION_DATABASE_URL`). Elle supprime les règles d’inactivité, clôture les alertes d’inactivité ouvertes, passe les échecs d’exécution en « critique » et installe les interrupteurs Telegram (critiques activés). Si le `.env` contient `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ADMIN_CHAT_ID`, l’application les reprend une seule fois en base (journal : « Compte Telegram repris des variables d’environnement »).
+
+Après la mise à jour :
+
+1. Paramètres › Alertes Telegram : vérifier le jeton masqué et l’identifiant, puis **Envoyer un message de test**.
+2. Passer en revue les interrupteurs (par défaut : échec d’exécution et instance injoignable activés ; taux d’échec, budget IA, demandes et actions client désactivés).
+3. Facultatif : retirer `TELEGRAM_*` du `.env` — ils ne sont plus lus une fois la base renseignée.
+
+Retour arrière : `git checkout <commit précédent>` puis `docker compose build && docker compose up -d`. La migration n’est pas réversible automatiquement (règles d’inactivité supprimées) ; le type « inactivité » n’existe plus dans l’interface ; restaurez une sauvegarde si nécessaire.
 
 ## 10. Démonstration (facultatif)
 
