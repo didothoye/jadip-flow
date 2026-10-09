@@ -8,7 +8,6 @@ import { Ago, AlertStatusBadge, ClientSelect, PillTabs, SeverityBadge, Tabs, toN
 
 export const RULE_KINDS: Record<string, { label: string; threshold: string | null; help: string }> = {
   execution_failed: { label: 'Échec d’exécution', threshold: null, help: 'Alerte dès qu’une exécution échoue.' },
-  workflow_inactive: { label: 'Inactivité (jours)', threshold: 'Jours sans exécution', help: 'Workflow actif qui ne s’exécute plus. Pour une règle globale, le délai propre à chaque client prime.' },
   failure_rate: { label: 'Taux d’échec (%)', threshold: 'Taux d’échec maximal (%)', help: 'Proportion d’échecs sur la fenêtre d’observation.' },
   sync_failed: { label: 'Synchronisation en panne (échecs consécutifs)', threshold: 'Échecs consécutifs', help: 'L’instance n8n ne répond plus aux synchronisations.' },
   llm_budget: { label: 'Budget IA (% du budget)', threshold: '% du budget mensuel atteint', help: 'Consommation IA du client rapportée à son budget mensuel.' },
@@ -24,7 +23,7 @@ export default function Alerts() {
   const [tab, setTab] = useTab<Tab>(TABS, 'alertes');
   return (
     <div className="stack">
-      <PageHead title="Alertes" sub={<>Les notifications Telegram et e-mail sont différées pendant les <Link to="/agence/parametres">heures calmes</Link>, sauf les alertes critiques.</>} />
+      <PageHead title="Alertes" sub={<>Les notifications Telegram et e-mail sont différées pendant les <Link to="/agence/parametres">heures calmes</Link>, sauf les alertes critiques. Le compte Telegram et les types d’alertes relayés se règlent dans <Link to="/agence/parametres?onglet=telegram">Paramètres › Alertes Telegram</Link>.</>} />
       <div>
         <Tabs<Tab> value={tab} onChange={setTab} tabs={[['alertes', 'Alertes'], ['regles', 'Règles']]} />
         {tab === 'alertes' ? <AlertList /> : <Rules />}

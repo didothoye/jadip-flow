@@ -9,7 +9,8 @@
 .ag-kpis a.card:hover { text-decoration: none; border-color: var(--border-strong); }
 
 .ag-2-1 { display: grid; gap: 1rem; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-@media (max-width: 1100px) { .ag-2-1 { grid-template-columns: minmax(0, 1fr); } }
+.ag-1-1 { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 1100px) { .ag-2-1, .ag-1-1 { grid-template-columns: minmax(0, 1fr); } }
 
 .ag-list { list-style: none; margin: 0; padding: 0; }
 .ag-list > li { display: flex; gap: .75rem; align-items: flex-start; justify-content: space-between; padding: .6rem 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
