@@ -13,6 +13,32 @@ export function classifyError(message: string | null | undefined): ErrorCategory
   return 'logic';
 }
 
+/** Indices qu'un texte est du code JavaScript plutôt qu'un message d'erreur. */
+const CODE_SIGNS: RegExp[] = [
+  /=>/, /Object\.(defineProperty|getPrototypeOf|setPrototypeOf|freeze)/, /\bReflect\.\w+/, /\bdelete\s+\w+\.\w+/,
+  /\bfunction\s*\w*\s*\(/, /\b(const|let|var)\s+\w+\s*=/, /[{;}]\s*[{;}]/, /\bprepareStackTrace\b|\bcaptureStackTrace\b/,
+];
+
+/** Vrai si le message ressemble à du code (n8n 2.x renvoie parfois le prélude de son exécuteur JavaScript quand un nœud Code échoue). */
+export function looksLikeCode(message: string): boolean {
+  const hits = CODE_SIGNS.filter((re) => re.test(message)).length;
+  return hits >= 3 || (hits >= 2 && message.length > 300);
+}
+
+/**
+ * Message d'erreur présentable : un message illisible (code) est remplacé par une explication, un court extrait brut étant conservé pour le diagnostic.
+ * `garbled` = vrai si le message a été remplacé ; il est alors classé « logique » sans passer par les mots-clés.
+ */
+export function sanitizeErrorMessage(raw: string, node: string | null): { message: string; category: ErrorCategory; garbled: boolean } {
+  const message = raw.trim();
+  if (!looksLikeCode(message)) return { message, category: classifyError(message) ?? 'logic', garbled: false };
+  const excerpt = message.replace(/\s+/g, ' ').slice(0, 80);
+  return {
+    message: `Erreur dans le nœud « ${node ?? 'Code'} » : message technique illisible renvoyé par n8n (extrait : « ${excerpt}… »). Consultez l’exécution dans n8n.`,
+    category: 'logic', garbled: true,
+  };
+}
+
 export const categoryLabels: Record<ErrorCategory, string> = {
   auth: 'Authentification',
   rate_limit: 'Limite de débit',

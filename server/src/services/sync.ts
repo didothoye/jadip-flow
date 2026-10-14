@@ -1,15 +1,17 @@
 import { one, q, tx } from '../db.js';
 import { decrypt } from '../lib/crypto.js';
 import { N8nClient, type N8nExecution } from '../n8n/client.js';
-import { classifyError } from './classify.js';
+import { sanitizeErrorMessage } from './classify.js';
 import { getSettings } from './settings.js';
 import { onExecutionsFailed, onSyncResult } from './alerts.js';
 import { notifyInApp } from './notify.js';
+import { log } from '../lib/log.js';
 
 export interface Instance {
   id: string; name: string; base_url: string; public_url: string | null; api_key_enc: string;
   sync_enabled: boolean; sync_interval_minutes: number; retention_days: number;
   executions_cursor_started_at: Date | null; last_sync_at: Date | null; consecutive_sync_failures: number;
+  created_at: Date;
 }
 
 export const clientFor = (i: Pick<Instance, 'base_url' | 'api_key_enc'>) => new N8nClient(i.base_url, decrypt(i.api_key_enc));
@@ -146,9 +148,11 @@ async function syncExecutions(inst: Instance, client: N8nClient, s: SyncSummary,
   let count = 0;
   let maxFinished = cursor ?? 0;
   const failedIds: number[] = [];
+  // les échecs antérieurs au rattachement de l'instance au portail sont importés (historique) mais n'ouvrent pas d'alerte
+  const alertFrom = new Date(inst.created_at);
   const flush = async () => {
     if (!batch.length) return;
-    const r = await upsertExecutions(inst.id, batch);
+    const r = await upsertExecutions(inst.id, batch, alertFrom);
     failedIds.push(...r.newlyFailed);
     s.executionsImported += r.inserted;
     batch = [];
@@ -189,9 +193,9 @@ function toRow(e: N8nExecution, workflowId: string, clientId: string | null): Ro
   };
 }
 
-/** Insertion / mise à jour groupée ; retourne les exécutions nouvellement en échec. */
-export async function upsertExecutions(instanceId: string, rows: Row[]): Promise<{ inserted: number; newlyFailed: number[] }> {
-  const res = await q<{ id: number; status: string; inserted: boolean; was_failed: boolean }>(`
+/** Insertion / mise à jour groupée ; retourne les exécutions nouvellement en échec (démarrées à partir de `alertFrom` si fourni). */
+export async function upsertExecutions(instanceId: string, rows: Row[], alertFrom?: Date): Promise<{ inserted: number; newlyFailed: number[] }> {
+  const res = await q<{ id: number; status: string; started_at: Date; inserted: boolean; was_failed: boolean }>(`
     WITH input AS (
       SELECT * FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[], $7::timestamptz[], $8::timestamptz[], $9::int[], $10::text[], $11::text[])
         AS t(workflow_id, client_id, n8n_execution_id, status, mode, started_at, stopped_at, duration_ms, retry_of, retry_success_id)
@@ -203,14 +207,14 @@ export async function upsertExecutions(instanceId: string, rows: Row[]): Promise
     ON CONFLICT (instance_id, n8n_execution_id) DO UPDATE SET
       status = EXCLUDED.status, stopped_at = EXCLUDED.stopped_at, duration_ms = EXCLUDED.duration_ms,
       retry_success_id = EXCLUDED.retry_success_id, workflow_id = EXCLUDED.workflow_id, client_id = EXCLUDED.client_id
-    RETURNING id, status, (xmax = 0) AS inserted,
+    RETURNING id, status, started_at, (xmax = 0) AS inserted,
       COALESCE((SELECT p.status IN ('error','crashed') FROM prev p WHERE p.n8n_execution_id = executions.n8n_execution_id), false) AS was_failed`,
     [instanceId, rows.map((r) => r.workflowId), rows.map((r) => r.clientId), rows.map((r) => r.n8nId), rows.map((r) => r.status),
      rows.map((r) => r.mode), rows.map((r) => r.startedAt), rows.map((r) => r.stoppedAt), rows.map((r) => r.durationMs),
      rows.map((r) => r.retryOf), rows.map((r) => r.retrySuccessId)]);
   return {
     inserted: res.filter((r) => r.inserted).length,
-    newlyFailed: res.filter((r) => FAILED.has(r.status) && !r.was_failed).map((r) => r.id),
+    newlyFailed: res.filter((r) => FAILED.has(r.status) && !r.was_failed && (!alertFrom || new Date(r.started_at) >= alertFrom)).map((r) => r.id),
   };
 }
 
@@ -223,11 +227,14 @@ async function fetchErrorDetails(inst: Instance, client: N8nClient, limit: numbe
   for (const r of rows) {
     try {
       const d = await client.errorSummary(r.n8n_execution_id);
-      const message = d.message ?? 'Erreur sans message';
-      await q('UPDATE executions SET error_node=$2, error_message=$3, error_category=$4 WHERE id=$1',
-        [r.id, d.node, message, classifyError(message)]);
-    } catch {
-      await q(`UPDATE executions SET error_category='logic', error_message=COALESCE(error_message,'Détail indisponible') WHERE id=$1`, [r.id]);
+      const { message, category, garbled } = sanitizeErrorMessage(d.message ?? 'Erreur sans message', d.node);
+      if (garbled) log.warn({ instance: inst.name, executionId: r.n8n_execution_id, node: d.node }, 'Message d’erreur illisible renvoyé par n8n, remplacé par une explication');
+      await q('UPDATE executions SET error_node=$2, error_message=$3, error_category=$4 WHERE id=$1', [r.id, d.node, message, category]);
+    } catch (e: any) {
+      // l'échec est tracé (journal + message de l'exécution) ; l'exécution reste visible comme échec, sans bloquer la synchronisation
+      const reason = String(e?.message ?? e).slice(0, 300);
+      log.warn({ instance: inst.name, executionId: r.n8n_execution_id, reason }, 'Détail d’une erreur d’exécution indisponible');
+      await q(`UPDATE executions SET error_category='logic', error_message=COALESCE(error_message, $2) WHERE id=$1`, [r.id, `Détail indisponible : ${reason}`]);
     }
   }
 }

@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { q, withLock } from './db.js';
+import { log } from './lib/log.js';
 import { systemActor } from './lib/actor.js';
 import { syncInstance, purgeOldExecutions } from './services/sync.js';
 import { evaluatePeriodic, flushAlertNotifications } from './services/alerts.js';
@@ -17,14 +18,23 @@ async function record(name: string, status: string, message: string | null, star
            ON CONFLICT (name) DO UPDATE SET last_started_at=$2, last_finished_at=now(), last_status=$3, last_message=$4`, [name, started, status, message]);
 }
 
-async function runJob(j: Job) {
+/**
+ * Exécute une tâche sous verrou et consigne chaque passage dans job_runs (page Système), y compris sans valeur de retour.
+ * Un échec est journalisé au niveau « error » (journal JSON, filtrable) et enregistré avec son message.
+ */
+async function runJob(j: Job): Promise<'ok' | 'error' | 'skipped'> {
   const started = new Date();
   try {
     const r = await withLock(j.lockKey, j.run);
-    if (r !== undefined) await record(j.name, 'ok', typeof r === 'object' ? JSON.stringify(r).slice(0, 500) : String(r), started);
+    if (!r.acquired) return 'skipped'; // une autre instance tient le verrou : rien à consigner
+    const summary = r.result === undefined || r.result === null ? null : typeof r.result === 'object' ? JSON.stringify(r.result).slice(0, 500) : String(r.result);
+    await record(j.name, 'ok', summary, started);
+    return 'ok';
   } catch (e: any) {
-    console.error(`[tâche ${j.name}]`, e);
-    await record(j.name, 'error', String(e?.message ?? e).slice(0, 500), started).catch(() => {});
+    const message = String(e?.message ?? e).slice(0, 500);
+    log.error({ job: j.name, err: e }, `Tâche planifiée « ${j.name} » en échec : ${message}`);
+    await record(j.name, 'error', message, started).catch((err) => log.error({ job: j.name, err }, 'Impossible de consigner l’échec de la tâche'));
+    return 'error';
   }
 }
 
@@ -76,4 +86,10 @@ export const runJobByName = async (name: string) => {
   const j = jobs.find((x) => x.name === name);
   if (!j) throw new Error(`Tâche inconnue : ${name}`);
   return j.run();
+};
+/** Même parcours que le planificateur (verrou, consignation, journal) ; pour les tests et l'exploitation. */
+export const runJobTracked = async (name: string) => {
+  const j = jobs.find((x) => x.name === name);
+  if (!j) throw new Error(`Tâche inconnue : ${name}`);
+  return runJob(j);
 };

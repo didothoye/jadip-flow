@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { pool } from './db.js';
+import { log } from './lib/log.js';
 import { registerAuth } from './auth.js';
 import { HttpError } from './lib/errors.js';
 import authRoutes from './routes/auth.js';
@@ -27,7 +28,7 @@ export const routeTable: { method: string; url: string }[] = [];
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
-    logger: opts.logger ?? !config.isTest ? { level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-n8n-api-key"]'] } : false,
+    ...(opts.logger ?? !config.isTest ? { loggerInstance: log } : { logger: false }),
     trustProxy: true,
     bodyLimit: 2 * 1024 * 1024,
   });
@@ -75,14 +76,28 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   // interface web (SPA)
   if (existsSync(config.webDir)) {
     await app.register(fastifyStatic, { root: config.webDir, wildcard: false, index: false });
-    const index = join(config.webDir, 'index.html');
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/') || req.url.startsWith('/mcp')) return reply.code(404).send({ error: 'Route inconnue', code: 'not_found' });
+      // la page de l'application n'est servie qu'aux navigations ; une demande de fichier inconnu (/.git/config, /sitemap.xml…) reçoit un vrai 404
+      if (!isSpaNavigation(req.method, req.url, req.headers.accept)) return reply.code(404).type('text/plain; charset=utf-8').send('Page introuvable');
       reply.header('cache-control', 'no-cache');
       return reply.sendFile('index.html', config.webDir);
     });
     app.get('/', (_req, reply) => reply.header('cache-control', 'no-cache').sendFile('index.html', config.webDir));
-    void index;
   }
   return app;
+}
+
+/**
+ * Vrai pour une navigation d'un utilisateur vers une adresse de l'interface : GET (ou HEAD), le navigateur attend du HTML,
+ * et le chemin ne désigne pas un fichier (pas d'extension, aucun segment commençant par un point).
+ */
+export function isSpaNavigation(method: string, url: string, accept: string | undefined): boolean {
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (!accept || !/\btext\/html\b/.test(accept)) return false;
+  const path = url.split('?')[0];
+  const segments = path.split('/').filter(Boolean);
+  if (segments.some((s) => s.startsWith('.'))) return false;
+  const last = segments[segments.length - 1] ?? '';
+  return !/\.[a-z0-9]{1,8}$/i.test(last);
 }

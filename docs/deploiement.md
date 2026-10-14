@@ -124,6 +124,12 @@ Après la mise à jour :
 
 Retour arrière : `git checkout <commit précédent>` puis `docker compose build && docker compose up -d`. La migration n’est pas réversible automatiquement (règles d’inactivité supprimées) ; le type « inactivité » n’existe plus dans l’interface ; restaurez une sauvegarde si nécessaire.
 
+### Mise à jour « Rappels bornés » (migration `003_alertes_rappels.sql`)
+
+Appliquée automatiquement au démarrage. Elle ajoute le plafond de rappels par règle (`max_reminders`, 3 par défaut), le compteur de rappels et le motif de résolution par alerte, puis **résout avec le motif « expirée » les alertes d’échec ouvertes sans nouvelle occurrence depuis la fenêtre de leur règle** (24 h par défaut) : les rappels Telegram de ces alertes cessent dès le redémarrage. Vérification : `docker compose logs --tail 50 jadip-flow` affiche « migration appliquée : 003_alertes_rappels.sql », et Alertes › Résolues liste les alertes expirées avec leur motif.
+
+Retour arrière : les colonnes ajoutées sont ignorées par l’ancienne version ; les alertes expirées restent résolues (les rouvrir depuis le portail si nécessaire).
+
 ## 10. Démonstration (facultatif)
 
 ```bash

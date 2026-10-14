@@ -1,5 +1,7 @@
 import { config } from '../config.js';
+import { audit } from '../audit.js';
 import { one, q } from '../db.js';
+import { systemActor } from '../lib/actor.js';
 import { categoryLabels, clientExplanations, type ErrorCategory } from './classify.js';
 import { enqueue, escapeHtml, notifyClientUsers, notifyInApp } from './notify.js';
 import { emitEvent } from './webhooks.js';
@@ -8,23 +10,26 @@ import { getTelegramConfig } from './telegram.js';
 
 export interface Rule {
   id: string; name: string; kind: string; client_id: string | null; workflow_id: string | null; threshold: number | null;
-  window_hours: number; group_minutes: number; repeat_minutes: number; channels: string[]; enabled: boolean;
+  window_hours: number; group_minutes: number; repeat_minutes: number; max_reminders: number; channels: string[]; enabled: boolean;
 }
+
+/** Motifs de résolution automatique ou manuelle (colonne alerts.resolved_reason). */
+export type ResolveReason = 'reprise' | 'expirée' | 'workflow arrêté' | 'retour à la normale' | 'manuelle';
 
 /** Règles installées au premier démarrage. L'inactivité d'un workflow n'est volontairement plus une alerte : un workflow qui ne tourne pas n'est pas un incident. */
 export const DEFAULT_RULES: Omit<Rule, 'id' | 'client_id' | 'workflow_id' | 'enabled'>[] = [
-  { name: 'Échec d’exécution', kind: 'execution_failed', threshold: null, window_hours: 24, group_minutes: 15, repeat_minutes: 240, channels: ['app', 'telegram'] },
-  { name: 'Taux d’échec élevé', kind: 'failure_rate', threshold: 20, window_hours: 24, group_minutes: 15, repeat_minutes: 720, channels: ['app', 'telegram'] },
-  { name: 'Synchronisation en panne', kind: 'sync_failed', threshold: 2, window_hours: 24, group_minutes: 15, repeat_minutes: 120, channels: ['app', 'telegram', 'email'] },
-  { name: 'Budget IA dépassé', kind: 'llm_budget', threshold: 80, window_hours: 24, group_minutes: 15, repeat_minutes: 1440, channels: ['app', 'telegram', 'email'] },
+  { name: 'Échec d’exécution', kind: 'execution_failed', threshold: null, window_hours: 24, group_minutes: 15, repeat_minutes: 240, max_reminders: 3, channels: ['app', 'telegram'] },
+  { name: 'Taux d’échec élevé', kind: 'failure_rate', threshold: 20, window_hours: 24, group_minutes: 15, repeat_minutes: 720, max_reminders: 3, channels: ['app', 'telegram'] },
+  { name: 'Synchronisation en panne', kind: 'sync_failed', threshold: 2, window_hours: 24, group_minutes: 15, repeat_minutes: 120, max_reminders: 3, channels: ['app', 'telegram', 'email'] },
+  { name: 'Budget IA dépassé', kind: 'llm_budget', threshold: 80, window_hours: 24, group_minutes: 15, repeat_minutes: 1440, max_reminders: 3, channels: ['app', 'telegram', 'email'] },
 ];
 
 export async function ensureDefaultRules() {
   const n = await one<{ n: number }>('SELECT count(*)::int n FROM alert_rules');
   if (n && n.n > 0) return;
   for (const r of DEFAULT_RULES) {
-    await q(`INSERT INTO alert_rules(name, kind, threshold, window_hours, group_minutes, repeat_minutes, channels) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [r.name, r.kind, r.threshold, r.window_hours, r.group_minutes, r.repeat_minutes, r.channels]);
+    await q(`INSERT INTO alert_rules(name, kind, threshold, window_hours, group_minutes, repeat_minutes, max_reminders, channels) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [r.name, r.kind, r.threshold, r.window_hours, r.group_minutes, r.repeat_minutes, r.max_reminders, r.channels]);
   }
 }
 
@@ -62,9 +67,22 @@ export async function raiseAlert(a: RaiseInput): Promise<number> {
   return alert.id;
 }
 
-export async function resolveAlerts(dedupPrefix: string, exceptKeys: string[] = []) {
-  await q(`UPDATE alerts SET status='resolved', resolved_at=now() WHERE status <> 'resolved' AND dedup_key LIKE $1 || '%' AND NOT (dedup_key = ANY($2))`,
-    [dedupPrefix, exceptKeys]);
+export async function resolveAlerts(dedupPrefix: string, exceptKeys: string[] = [], reason: ResolveReason = 'retour à la normale') {
+  await q(`UPDATE alerts SET status='resolved', resolved_at=now(), resolved_reason=$3 WHERE status <> 'resolved' AND dedup_key LIKE $1 || '%' AND NOT (dedup_key = ANY($2))`,
+    [dedupPrefix, exceptKeys, reason]);
+}
+
+/** Résout les alertes d'échec d'un workflow (désactivation, suppression) et le consigne dans le journal d'audit. */
+export async function resolveWorkflowAlerts(workflowId: string, reason: ResolveReason): Promise<number> {
+  const rows = await q<{ id: number; client_id: string | null }>(
+    `UPDATE alerts SET status='resolved', resolved_at=now(), resolved_reason=$2 WHERE kind='execution_failed' AND status <> 'resolved' AND workflow_id=$1 RETURNING id, client_id`,
+    [workflowId, reason]);
+  for (const a of rows) await auditAutoResolve(a.id, a.client_id, reason);
+  return rows.length;
+}
+
+async function auditAutoResolve(alertId: number, clientId: string | null, reason: ResolveReason) {
+  await audit({ actorLabel: systemActor.label, source: 'system', action: 'alert.auto_resolved', targetType: 'alert', targetId: alertId, clientId, detail: { reason } });
 }
 
 /** Libellé d'une rafale : « 5 échecs en 15 min », « 3 occurrences en 2 h ». */
@@ -79,53 +97,65 @@ export function burstLabel(kind: string, count: number, sinceMs: number) {
  * Anti-rafale :
  *  - première notification immédiate ;
  *  - nouvelles occurrences regroupées, notifiées au plus une fois par « group_minutes » (« 5 échecs en 15 min ») ;
- *  - alerte persistante non acquittée rappelée après « repeat_minutes ».
+ *  - alerte restée ouverte (non prise en compte) rappelée après « repeat_minutes », au plus « max_reminders » fois ;
+ *    le dernier rappel le dit, puis l'alerte reste visible dans le portail sans plus aucun message.
+ *    Une nouvelle rafale d'occurrences remet le compteur de rappels à zéro.
+ *  - seules la première notification et les rafales d'une alerte critique contournent les horaires calmes ; les rappels attendent.
  * Telegram n'est utilisé que si la règle le prévoit ET si le type d'alerte est activé dans Paramètres › Alertes Telegram.
+ * Retourne vrai si une notification est partie.
  */
-async function maybeNotify(alert: any, rule: Rule) {
+async function maybeNotify(alert: any, rule: Rule): Promise<boolean> {
   const now = Date.now();
   const last = alert.last_notified_at ? new Date(alert.last_notified_at).getTime() : null;
   let reason: 'first' | 'grouped' | 'repeat' | null = null;
   if (last === null) reason = 'first';
   else if (alert.occurrences > alert.notified_occurrences && now - last >= rule.group_minutes * 60000) reason = 'grouped';
-  else if (alert.status === 'open' && now - last >= rule.repeat_minutes * 60000) reason = 'repeat';
-  if (!reason) return;
+  else if (alert.status === 'open' && now - last >= rule.repeat_minutes * 60000 && alert.reminders_sent < rule.max_reminders) reason = 'repeat';
+  if (!reason) return false;
 
+  const lastReminder = reason === 'repeat' && alert.reminders_sent + 1 >= rule.max_reminders;
   const newCount = alert.occurrences - alert.notified_occurrences;
   const firstSeen = new Date(alert.first_seen_at).getTime();
   const prefix = reason === 'grouped' ? `${burstLabel(alert.kind, newCount, now - (last ?? firstSeen))} — `
-    : reason === 'repeat' ? 'Rappel — '
+    : reason === 'repeat' ? (lastReminder ? 'Dernier rappel — ' : 'Rappel — ')
     : alert.occurrences > 1 ? `${burstLabel(alert.kind, alert.occurrences, Math.max(now - firstSeen, 60000))} — ` : '';
   const title = `${prefix}${alert.title}`;
+  const body = lastReminder ? `${alert.message}\nL’alerte reste ouverte dans le portail ; plus aucun rappel ne sera envoyé.` : alert.message;
+  const bypassQuiet = reason !== 'repeat' && alert.severity === 'critical';
   const link = alert.workflow_id ? `/agence/workflows/${alert.workflow_id}` : alert.client_id ? `/agence/clients/${alert.client_id}` : '/agence/alertes';
-  if (rule.channels.includes('app')) await notifyInApp({ title, body: alert.message, link, clientId: alert.client_id });
+  if (rule.channels.includes('app')) await notifyInApp({ title, body, link, clientId: alert.client_id });
   if (rule.channels.includes('telegram') && await telegramEnabledFor(alert.kind)) {
     const tg = await getTelegramConfig();
     if (tg.chatId) {
       const icon = alert.severity === 'critical' ? '🔴' : alert.severity === 'warning' ? '🟠' : 'ℹ️';
       await enqueue({ channel: 'telegram', recipient: tg.chatId,
-        body: `${icon} <b>${escapeHtml(title)}</b>\n${escapeHtml(alert.message)}\n${config.publicUrl}${link}`, bypassQuiet: alert.severity === 'critical' });
+        body: `${icon} <b>${escapeHtml(title)}</b>\n${escapeHtml(body)}\n${config.publicUrl}${link}`, bypassQuiet });
     }
   }
   if (rule.channels.includes('email')) {
     const admins = await q<{ email: string }>(`SELECT email FROM users WHERE role='admin' AND disabled_at IS NULL AND notify_email`);
     const to = new Set([config.adminEmail, ...admins.map((x) => x.email)].filter(Boolean));
-    for (const r of to) await enqueue({ channel: 'email', recipient: r, subject: `[${config.brand.productName}] ${title}`, body: `${alert.message}\n${config.publicUrl}${link}` });
+    for (const r of to) await enqueue({ channel: 'email', recipient: r, subject: `[${config.brand.productName}] ${title}`, body: `${body}\n${config.publicUrl}${link}`, bypassQuiet });
   }
-  await q('UPDATE alerts SET last_notified_at=now(), notified_occurrences=occurrences WHERE id=$1', [alert.id]);
+  await q(`UPDATE alerts SET last_notified_at=now(), notified_occurrences=occurrences,
+           reminders_sent = CASE WHEN $2 = 'repeat' THEN reminders_sent + 1 WHEN $2 = 'grouped' THEN 0 ELSE reminders_sent END WHERE id=$1`, [alert.id, reason]);
+  return true;
 }
 
 /** Relance les notifications groupées / rappels en attente (appelé par le planificateur). */
-export async function flushAlertNotifications() {
+export async function flushAlertNotifications(): Promise<{ open: number; notified: number }> {
   const open = await q<any>(`SELECT a.*, r.name AS rule_name, r.threshold AS rule_threshold, r.window_hours AS rule_window_hours,
-                                    r.group_minutes AS rule_group_minutes, r.repeat_minutes AS rule_repeat_minutes, r.channels AS rule_channels
+                                    r.group_minutes AS rule_group_minutes, r.repeat_minutes AS rule_repeat_minutes, r.max_reminders AS rule_max_reminders, r.channels AS rule_channels
                              FROM alerts a JOIN alert_rules r ON r.id = a.rule_id
                              WHERE a.status <> 'resolved' AND r.enabled`);
+  let notified = 0;
   for (const a of open) {
     const rule: Rule = { id: a.rule_id, name: a.rule_name, kind: a.kind, client_id: null, workflow_id: null, threshold: a.rule_threshold,
-      window_hours: a.rule_window_hours, group_minutes: a.rule_group_minutes, repeat_minutes: a.rule_repeat_minutes, channels: a.rule_channels, enabled: true };
-    await maybeNotify(a, rule);
+      window_hours: a.rule_window_hours, group_minutes: a.rule_group_minutes, repeat_minutes: a.rule_repeat_minutes, max_reminders: a.rule_max_reminders,
+      channels: a.rule_channels, enabled: true };
+    if (await maybeNotify(a, rule)) notified++;
   }
+  return { open: open.length, notified };
 }
 
 // ------------------------------------------------------------------ déclencheurs
@@ -175,11 +205,38 @@ export async function onExecutionsFailed(executionIds: number[]) {
 }
 
 /** Résout l'alerte d'échec d'un workflow dès qu'une exécution réussit après le dernier échec. */
-export async function autoResolveRecovered() {
-  await q(`
-    UPDATE alerts a SET status='resolved', resolved_at=now()
+export async function autoResolveRecovered(): Promise<number> {
+  const rows = await q<{ id: number; client_id: string | null }>(`
+    UPDATE alerts a SET status='resolved', resolved_at=now(), resolved_reason='reprise'
     WHERE a.kind='execution_failed' AND a.status <> 'resolved' AND EXISTS (
-      SELECT 1 FROM executions e WHERE e.workflow_id = a.workflow_id AND e.status='success' AND e.started_at > a.last_seen_at)`);
+      SELECT 1 FROM executions e WHERE e.workflow_id = a.workflow_id AND e.status='success' AND e.started_at > a.last_seen_at)
+    RETURNING a.id, a.client_id`);
+  for (const a of rows) await auditAutoResolve(a.id, a.client_id, 'reprise');
+  return rows.length;
+}
+
+/**
+ * Alertes d'échec qui ne peuvent plus évoluer :
+ *  - sans nouvelle occurrence depuis la fenêtre de leur règle (« expirée ») ;
+ *  - dont le workflow est désactivé, supprimé ou archivé dans n8n (« workflow arrêté »).
+ * Elles sont résolues avec leur motif ; un nouvel échec ouvrira une alerte neuve.
+ */
+export async function expireStaleAlerts(): Promise<{ expired: number; stopped: number }> {
+  const expired = await q<{ id: number; client_id: string | null }>(`
+    UPDATE alerts a SET status='resolved', resolved_at=now(), resolved_reason='expirée'
+    FROM alert_rules r
+    WHERE r.id = a.rule_id AND a.kind='execution_failed' AND a.status <> 'resolved'
+      AND a.last_seen_at < now() - (r.window_hours * interval '1 hour')
+    RETURNING a.id, a.client_id`);
+  for (const a of expired) await auditAutoResolve(a.id, a.client_id, 'expirée');
+  const stopped = await q<{ id: number; client_id: string | null }>(`
+    UPDATE alerts a SET status='resolved', resolved_at=now(), resolved_reason='workflow arrêté'
+    FROM workflows w
+    WHERE w.id = a.workflow_id AND a.kind='execution_failed' AND a.status <> 'resolved'
+      AND (NOT w.active OR w.deleted_at IS NOT NULL OR w.is_archived_in_n8n)
+    RETURNING a.id, a.client_id`);
+  for (const a of stopped) await auditAutoResolve(a.id, a.client_id, 'workflow arrêté');
+  return { expired: expired.length, stopped: stopped.length };
 }
 
 export async function onSyncResult(instanceId: string, ok: boolean, error?: string) {
@@ -196,11 +253,13 @@ export async function onSyncResult(instanceId: string, ok: boolean, error?: stri
   });
 }
 
-/** Évaluation périodique des règles d'état (taux d'échec, budget). */
+/** Évaluation périodique : reprises, expirations, puis règles d'état (taux d'échec, budget). */
 export async function evaluatePeriodic() {
-  await autoResolveRecovered();
+  const recovered = await autoResolveRecovered();
+  const stale = await expireStaleAlerts();
   await evaluateFailureRate();
   await evaluateBudgets();
+  return { recovered, ...stale };
 }
 
 async function evaluateFailureRate() {
