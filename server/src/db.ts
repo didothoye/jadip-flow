@@ -39,14 +39,14 @@ export async function tx<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
   }
 }
 
-/** Verrou consultatif : garantit qu'une seule instance de l'application exécute une tâche. */
-export async function withLock<T>(key: number, fn: () => Promise<T>): Promise<T | undefined> {
+/** Verrou consultatif : garantit qu'une seule instance de l'application exécute une tâche. `acquired` = faux si une autre instance la tient. */
+export async function withLock<T>(key: number, fn: () => Promise<T>): Promise<{ acquired: false } | { acquired: true; result: T }> {
   const c = await pool.connect();
   try {
     const { rows } = await c.query('SELECT pg_try_advisory_lock($1) AS ok', [key]);
-    if (!rows[0].ok) return undefined;
+    if (!rows[0].ok) return { acquired: false };
     try {
-      return await fn();
+      return { acquired: true, result: await fn() };
     } finally {
       await c.query('SELECT pg_advisory_unlock($1)', [key]);
     }
