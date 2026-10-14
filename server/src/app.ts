@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { pool } from './db.js';
+import { log } from './lib/log.js';
 import { registerAuth } from './auth.js';
 import { HttpError } from './lib/errors.js';
 import authRoutes from './routes/auth.js';
@@ -27,7 +28,7 @@ export const routeTable: { method: string; url: string }[] = [];
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
-    logger: opts.logger ?? !config.isTest ? { level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-n8n-api-key"]'] } : false,
+    ...(opts.logger ?? !config.isTest ? { loggerInstance: log } : { logger: false }),
     trustProxy: true,
     bodyLimit: 2 * 1024 * 1024,
   });

@@ -5,6 +5,7 @@ import { classifyError } from './classify.js';
 import { getSettings } from './settings.js';
 import { onExecutionsFailed, onSyncResult } from './alerts.js';
 import { notifyInApp } from './notify.js';
+import { log } from '../lib/log.js';
 
 export interface Instance {
   id: string; name: string; base_url: string; public_url: string | null; api_key_enc: string;
@@ -229,8 +230,11 @@ async function fetchErrorDetails(inst: Instance, client: N8nClient, limit: numbe
       const message = d.message ?? 'Erreur sans message';
       await q('UPDATE executions SET error_node=$2, error_message=$3, error_category=$4 WHERE id=$1',
         [r.id, d.node, message, classifyError(message)]);
-    } catch {
-      await q(`UPDATE executions SET error_category='logic', error_message=COALESCE(error_message,'Détail indisponible') WHERE id=$1`, [r.id]);
+    } catch (e: any) {
+      // l'échec est tracé (journal + message de l'exécution) ; l'exécution reste visible comme échec, sans bloquer la synchronisation
+      const reason = String(e?.message ?? e).slice(0, 300);
+      log.warn({ instance: inst.name, executionId: r.n8n_execution_id, reason }, 'Détail d’une erreur d’exécution indisponible');
+      await q(`UPDATE executions SET error_category='logic', error_message=COALESCE(error_message, $2) WHERE id=$1`, [r.id, `Détail indisponible : ${reason}`]);
     }
   }
 }
