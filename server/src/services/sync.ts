@@ -1,7 +1,7 @@
 import { one, q, tx } from '../db.js';
 import { decrypt } from '../lib/crypto.js';
 import { N8nClient, type N8nExecution } from '../n8n/client.js';
-import { classifyError } from './classify.js';
+import { sanitizeErrorMessage } from './classify.js';
 import { getSettings } from './settings.js';
 import { onExecutionsFailed, onSyncResult } from './alerts.js';
 import { notifyInApp } from './notify.js';
@@ -227,9 +227,9 @@ async function fetchErrorDetails(inst: Instance, client: N8nClient, limit: numbe
   for (const r of rows) {
     try {
       const d = await client.errorSummary(r.n8n_execution_id);
-      const message = d.message ?? 'Erreur sans message';
-      await q('UPDATE executions SET error_node=$2, error_message=$3, error_category=$4 WHERE id=$1',
-        [r.id, d.node, message, classifyError(message)]);
+      const { message, category, garbled } = sanitizeErrorMessage(d.message ?? 'Erreur sans message', d.node);
+      if (garbled) log.warn({ instance: inst.name, executionId: r.n8n_execution_id, node: d.node }, 'Message d’erreur illisible renvoyé par n8n, remplacé par une explication');
+      await q('UPDATE executions SET error_node=$2, error_message=$3, error_category=$4 WHERE id=$1', [r.id, d.node, message, category]);
     } catch (e: any) {
       // l'échec est tracé (journal + message de l'exécution) ; l'exécution reste visible comme échec, sans bloquer la synchronisation
       const reason = String(e?.message ?? e).slice(0, 300);
