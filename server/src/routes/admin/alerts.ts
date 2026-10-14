@@ -19,6 +19,7 @@ const ruleBody = z.object({
   window_hours: z.number().int().min(1).max(24 * 30).optional(),
   group_minutes: z.number().int().min(0).max(1440).optional(),
   repeat_minutes: z.number().int().min(5).max(10080).optional(),
+  max_reminders: z.number().int().min(0).max(100).optional(),
   channels: z.array(z.enum(['app', 'telegram', 'email'])).min(1).optional(),
   enabled: z.boolean().optional(),
 });
@@ -55,7 +56,11 @@ export default async function alertRoutes(app: FastifyInstance) {
     const { id } = parse(numIdParam, { id: (req.params as any).id });
     const action = parse(z.enum(['acknowledge', 'resolve', 'reopen']), (req.params as any).action);
     const status = action === 'acknowledge' ? 'acknowledged' : action === 'resolve' ? 'resolved' : 'open';
-    const r = await one<any>(`UPDATE alerts SET status=$2, resolved_at = CASE WHEN $2='resolved' THEN now() ELSE NULL END WHERE id=$1 RETURNING id, client_id`, [id, status]);
+    const r = await one<any>(`UPDATE alerts SET status=$2,
+                                resolved_at = CASE WHEN $2='resolved' THEN now() ELSE NULL END,
+                                resolved_reason = CASE WHEN $2='resolved' THEN 'manuelle' ELSE NULL END,
+                                reminders_sent = CASE WHEN $2='open' THEN 0 ELSE reminders_sent END
+                              WHERE id=$1 RETURNING id, client_id`, [id, status]);
     if (!r) throw notFound('Alerte');
     await audit({ actorUserId: a.userId, actorLabel: a.label, source: a.source, action: `alert.${action}`, targetType: 'alert', targetId: id, clientId: r.client_id, ip: req.ip });
     return { ok: true };

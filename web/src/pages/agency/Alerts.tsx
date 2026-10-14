@@ -57,7 +57,7 @@ function AlertList() {
                     </td>
                     <td className="num">{fmtNum(a.occurrences)}</td>
                     <td className="small nowrap"><span title={fmtDateTime(a.first_seen_at)}>{fmtDateTime(a.first_seen_at)}</span><span className="ag-sub"><Ago at={a.last_seen_at} /></span></td>
-                    <td><AlertStatusBadge status={a.status} />{a.resolved_at && <span className="ag-sub">{fmtDateTime(a.resolved_at)}</span>}</td>
+                    <td><AlertStatusBadge status={a.status} />{a.resolved_at && <span className="ag-sub">{fmtDateTime(a.resolved_at)}{a.resolved_reason && ` · ${a.resolved_reason}`}</span>}</td>
                     <td className="actions">
                       {a.status === 'open' && <button className="btn small" disabled={busy} onClick={() => act(a.id, 'acknowledge', 'Alerte prise en compte.')}>Prendre en compte</button>}
                       {a.status !== 'resolved'
@@ -77,7 +77,7 @@ function AlertList() {
 
 interface Rule {
   id: string; name: string; kind: string; client_id: string | null; workflow_id: string | null; threshold: number | null; window_hours: number;
-  group_minutes: number; repeat_minutes: number; channels: string[]; enabled: boolean; client_name: string | null; workflow_name: string | null;
+  group_minutes: number; repeat_minutes: number; max_reminders: number; channels: string[]; enabled: boolean; client_name: string | null; workflow_name: string | null;
 }
 
 function Rules() {
@@ -92,7 +92,7 @@ function Rules() {
   };
   return (
     <Card title="Règles d’alerte" actions={<button className="btn primary" onClick={() => setEdit('new')}>Nouvelle règle</button>}>
-      <p className="muted small" style={{ marginTop: 0 }}>Une règle propre à un client ou à un workflow complète les règles globales. Le regroupement anti-bruit évite une notification par échec ; le délai de répétition relance une alerte restée ouverte.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>Une règle propre à un client ou à un workflow complète les règles globales. Le regroupement anti-bruit évite une notification par échec ; le délai de répétition relance une alerte restée ouverte, un nombre limité de fois. Une alerte d’échec sans nouvel échec depuis sa fenêtre d’observation, ou dont le workflow est arrêté, se résout d’elle-même.</p>
       <Async {...r}>
         {(rows) => rows.length ? (
           <div className="table-wrap">
@@ -105,7 +105,7 @@ function Rules() {
                     <td><strong>{x.name}</strong><span className="ag-sub">{RULE_KINDS[x.kind]?.label ?? x.kind}</span></td>
                     <td className="small">{x.workflow_id ? <>Workflow : <Link to={`/agence/workflows/${x.workflow_id}`}>{x.workflow_name}</Link></> : x.client_id ? <>Client : <Link to={`/agence/clients/${x.client_id}`}>{x.client_name}</Link></> : <Badge>Globale</Badge>}</td>
                     <td className="num">{x.threshold == null ? '—' : fmtNum(x.threshold, 2)}{x.kind === 'failure_rate' && <span className="ag-sub">sur {x.window_hours} h</span>}</td>
-                    <td className="small">{minutes(x.group_minutes)} / {minutes(x.repeat_minutes)}</td>
+                    <td className="small">{minutes(x.group_minutes)} / {minutes(x.repeat_minutes)}<span className="ag-sub">{x.max_reminders === 0 ? 'aucun rappel' : `${x.max_reminders} rappel${x.max_reminders > 1 ? 's' : ''} au plus`}</span></td>
                     <td><span className="ag-tags">{x.channels.map((c) => <Badge key={c}>{CHANNELS.find(([k]) => k === c)?.[1] ?? c}</Badge>)}</span></td>
                     <td className="actions">
                       <button className="btn small" onClick={() => setEdit(x)}>Modifier</button>
@@ -131,7 +131,7 @@ function RuleModal({ rule, onClose, onSaved }: { rule: Rule | null; onClose: () 
     scope: rule?.workflow_id ? 'workflow' : rule?.client_id ? 'client' : 'global',
     client_id: rule?.client_id ?? '', workflow_id: rule?.workflow_id ?? '',
     threshold: numStr(rule?.threshold), window_hours: String(rule?.window_hours ?? 24), group_minutes: String(rule?.group_minutes ?? 15),
-    repeat_minutes: String(rule?.repeat_minutes ?? 240), channels: rule?.channels ?? ['app', 'telegram'], enabled: rule?.enabled ?? true,
+    repeat_minutes: String(rule?.repeat_minutes ?? 240), max_reminders: String(rule?.max_reminders ?? 3), channels: rule?.channels ?? ['app', 'telegram'], enabled: rule?.enabled ?? true,
   });
   const wfs = useApi<{ id: string; name: string; display_name: string | null; client_name: string | null }[]>(f.scope === 'workflow' ? `/api/admin/workflows${qs({ client_id: f.client_id })}` : null, [f.scope]);
   const kind = RULE_KINDS[f.kind];
@@ -143,6 +143,7 @@ function RuleModal({ rule, onClose, onSaved }: { rule: Rule | null; onClose: () 
       workflow_id: f.scope === 'workflow' ? f.workflow_id || null : null,
       threshold: kind.threshold ? toNum(f.threshold) : null,
       window_hours: parseInt(f.window_hours, 10) || 24, group_minutes: parseInt(f.group_minutes, 10) || 0, repeat_minutes: parseInt(f.repeat_minutes, 10) || 240,
+      max_reminders: Math.max(0, parseInt(f.max_reminders, 10) || 0),
       channels: f.channels, enabled: f.enabled,
     };
     const ok = await run(() => (rule ? api.patch(`/api/admin/alert-rules/${rule.id}`, body) : api.post('/api/admin/alert-rules', body)), rule ? 'Règle enregistrée.' : 'Règle créée.');
@@ -179,6 +180,8 @@ function RuleModal({ rule, onClose, onSaved }: { rule: Rule | null; onClose: () 
             <input type="number" min={0} max={1440} value={f.group_minutes} onChange={(e) => setF({ ...f, group_minutes: e.target.value })} /></label>
           <label className="field">Délai de répétition (minutes)<span className="help">Rappel si l’alerte reste ouverte sans prise en compte.</span>
             <input type="number" min={5} max={10080} value={f.repeat_minutes} onChange={(e) => setF({ ...f, repeat_minutes: e.target.value })} /></label>
+          <label className="field">Nombre de rappels au plus<span className="help">Au-delà, l’alerte reste ouverte dans le portail sans nouveau message (0 = aucun rappel).</span>
+            <input type="number" min={0} max={100} value={f.max_reminders} onChange={(e) => setF({ ...f, max_reminders: e.target.value })} /></label>
         </div>
         <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small" style={{ fontWeight: 500, marginBottom: '.35rem' }}>Canaux</legend>

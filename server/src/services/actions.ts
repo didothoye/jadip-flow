@@ -6,6 +6,7 @@ import { clientFor } from './sync.js';
 import { notifyAdmins } from './notify.js';
 import { emitEvent } from './webhooks.js';
 import { getSettings } from './settings.js';
+import { resolveWorkflowAlerts } from './alerts.js';
 
 async function logAction(actor: Actor, a: { clientId: string | null; workflowId: string | null; action: string; result: 'ok' | 'error' | 'refused'; message?: string; detail?: Record<string, unknown> }) {
   await q(`INSERT INTO action_log(actor_user_id, actor_role, client_id, workflow_id, action, result, message) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -59,6 +60,7 @@ export async function setWorkflowActive(actor: Actor, workflowId: string, active
     throw new HttpError(502, actor.role === 'client' ? 'L’opération n’a pas pu aboutir pour le moment. Réessayez dans quelques minutes ; notre équipe est prévenue en cas de problème persistant.' : `n8n a refusé l’opération : ${e.message}`, 'n8n_error');
   }
   await q(`UPDATE workflows SET active=$2, paused_until=$3, updated_at=now() WHERE id=$1`, [workflowId, active, active ? null : opts.pauseUntil ?? null]);
+  if (!active) await resolveWorkflowAlerts(workflowId, 'workflow arrêté'); // plus d'exécutions à venir : fin des rappels
   await q(`INSERT INTO workflow_events(workflow_id, kind, detail) VALUES ($1,$2,$3)`,
     [workflowId, active ? 'activated' : 'deactivated', { by: actor.label, role: actor.role, pauseUntil: opts.pauseUntil ?? null, reason: opts.reason ?? null }]);
   const message = opts.pauseUntil ? `Pause jusqu’au ${opts.pauseUntil.toISOString()}` : opts.reason;
